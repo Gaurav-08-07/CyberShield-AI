@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AI-Based Cyber Threat Log Analyzer — Real-time threat detection using Stack, Queue, Hash Table, and BST data structures.">
+    <title>CyberShield AI — Threat Log Analyzer</title>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/index.css">
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div class="app-container">
+
+    <!-- ═══════════════ HEADER ═══════════════════════════════ -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo-icon">🛡️</div>
+            <div>
+                <div class="header-title">CyberShield AI</div>
+                <div class="header-subtitle">Threat Log Analyzer &nbsp;·&nbsp; Stack · Queue · Hash Table · BST</div>
+            </div>
+        </div>
+
+        <div class="header-center">
+            <div class="status-badge">
+                <span class="status-dot" id="status-indicator"></span>
+                <span id="status-text">READY</span>
+            </div>
+            <span class="clock" id="clock">00:00:00</span>
+        </div>
+
+        <div class="header-right">
+            <button class="btn btn-theme" id="btn-theme">☀️ Light Mode</button>
+            <div class="speed-control">
+                <label for="speed-slider">Speed</label>
+                <input type="range" id="speed-slider" min="1" max="20" value="5">
+                <span class="speed-value" id="speed-value">5</span>
+            </div>
+            <button class="btn btn-start" id="btn-start">▶ Start Analysis</button>
+            <button class="btn btn-stop"  id="btn-stop" disabled>■ Stop</button>
+            <button class="btn btn-reset" id="btn-reset">↺ Reset</button>
+        </div>
+    </header>
+
+    <!-- ═══════════════ STATS ROW ════════════════════════════ -->
+    <section class="stats-row">
+        <div class="stat-card">
+            <div class="stat-icon cyan">📊</div>
+            <div class="stat-info">
+                <div class="stat-label">Logs Processed</div>
+                <div class="stat-value cyan" id="stat-logs">0</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon magenta">🚨</div>
+            <div class="stat-info">
+                <div class="stat-label">Threats Detected</div>
+                <div class="stat-value magenta" id="stat-threats">0</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green">🌐</div>
+            <div class="stat-info">
+                <div class="stat-label">Active IPs Tracked</div>
+                <div class="stat-value green" id="stat-ips">0</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange">📥</div>
+            <div class="stat-info">
+                <div class="stat-label">Queue Depth</div>
+                <div class="stat-value orange" id="stat-queue">0</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ MAIN GRID: LOG FEED + ALERTS ════════ -->
+    <section class="main-grid">
+        <!-- Live Log Feed -->
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title"><span class="dot cyan"></span> Live Log Feed</div>
+            </div>
+            <div class="panel-body">
+                <div id="log-feed"></div>
+            </div>
+        </div>
+
+        <!-- Threat Alerts -->
+        <div class="panel alerts-panel" id="alerts-panel">
+            <div class="panel-header">
+                <div class="panel-title"><span class="dot magenta"></span> Threat Alerts</div>
+            </div>
+            <div class="panel-body">
+                <div id="alert-list"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ DATA STRUCTURE VISUALIZERS ═══════════ -->
+    <section class="ds-grid">
+
+        <!-- QUEUE -->
+        <div class="ds-panel">
+            <div class="ds-header">
+                <div class="ds-title"><span class="dot cyan"></span> Queue</div>
+                <span class="ds-tag fifo">FIFO</span>
+            </div>
+            <div class="ds-body">
+                <div class="ds-stats" id="queue-stats">
+                    <span>Size: <b>0</b>/500</span>
+                </div>
+                <div class="queue-bar-container">
+                    <div class="fill-bar fill-ok" id="queue-fill-bar" style="width: 0%"></div>
+                </div>
+                <div class="queue-items" id="queue-viz-items"></div>
+            </div>
+        </div>
+
+        <!-- HASH TABLE -->
+        <div class="ds-panel">
+            <div class="ds-header">
+                <div class="ds-title"><span class="dot green"></span> Hash Table</div>
+                <span class="ds-tag o1">O(1)</span>
+            </div>
+            <div class="ds-body">
+                <div class="ds-stats" id="hash-stats">
+                    <span>Entries: <b>0</b></span>
+                </div>
+                <div class="hash-bucket-grid" id="hash-bucket-grid"></div>
+                <div id="hash-top-ips"></div>
+            </div>
+        </div>
+
+        <!-- BST -->
+        <div class="ds-panel">
+            <div class="ds-header">
+                <div class="ds-title"><span class="dot purple"></span> BST (AVL)</div>
+                <span class="ds-tag logn">O(log n)</span>
+            </div>
+            <div class="ds-body">
+                <div class="ds-stats" id="bst-stats">
+                    <span>Nodes: <b>0</b></span>
+                </div>
+                <canvas id="bst-canvas"></canvas>
+            </div>
+        </div>
+
+        <!-- STACK -->
+        <div class="ds-panel">
+            <div class="ds-header">
+                <div class="ds-title"><span class="dot orange"></span> Stack</div>
+                <span class="ds-tag lifo">LIFO</span>
+            </div>
+            <div class="ds-body">
+                <div class="ds-stats" id="stack-stats">
+                    <span>Depth: <b>0</b></span>
+                </div>
+                <div class="stack-items" id="stack-items"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ CHARTS ═══════════════════════════════ -->
+    <section class="charts-row">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title"><span class="dot cyan"></span> Threat Timeline</div>
+            </div>
+            <div class="chart-container">
+                <canvas id="timeline-chart"></canvas>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title"><span class="dot magenta"></span> Attack Distribution</div>
+            </div>
+            <div class="chart-container">
+                <canvas id="attack-chart"></canvas>
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<!-- ═══════════════ SCRIPTS (order matters) ════════════════ -->
+<script src="js/data-structures.js"></script>
+<script src="js/log-generator.js"></script>
+<script src="js/analyzer.js"></script>
+<script src="js/dashboard.js"></script>
+
+</body>
+</html>
