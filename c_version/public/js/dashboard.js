@@ -11,6 +11,7 @@ class Dashboard {
         
         this._initCharts();
         this._bindControls();
+        this._bindFileUpload();
     }
 
     _initCharts() {
@@ -23,42 +24,342 @@ class Dashboard {
         const ctxAttack = document.getElementById('attack-dist-chart').getContext('2d');
         this.attackChart = new Chart(ctxAttack, {
             type: 'doughnut', data: this.attackDistData,
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8aa0' } } }, borderwidth: 0 }
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8aa0' } } }, borderWidth: 0 }
         });
     }
 
     _bindControls() {
-        document.getElementById('btn-start').addEventListener('click', () => this.start());
-        document.getElementById('btn-stop').addEventListener('click', () => this.stop());
-        document.getElementById('btn-reset').addEventListener('click', () => {
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const btnReset = document.getElementById('btn-reset');
+        const btnTheme = document.getElementById('btn-theme');
+        const speedSlider = document.getElementById('speed-slider');
+
+        if (btnStart) btnStart.addEventListener('click', () => this.start());
+        if (btnStop) btnStop.addEventListener('click', () => this.stop());
+        if (btnReset) btnReset.addEventListener('click', () => {
+            this.stop();
+            fetch('/api/reset');
             this.logFeed.innerHTML = '';
             this.alertFeed.innerHTML = '';
+            document.getElementById('stat-processed').textContent = '0';
+            document.getElementById('stat-threats').textContent = '0';
+            document.getElementById('queue-total').textContent = '0';
+            document.getElementById('queue-util').textContent = '0.0%';
+            document.getElementById('queue-bar').style.width = '0%';
+            this.attackDistData.datasets[0].data = [0, 0, 0, 0, 0];
+            this.attackChart.update();
+            this.timelineData.labels = [];
+            this.timelineData.datasets[0].data = [];
+            this.timelineChart.update();
         });
-        document.getElementById('btn-theme').addEventListener('click', () => {
+
+        if (btnTheme) btnTheme.addEventListener('click', () => {
             document.body.classList.toggle('light-mode');
             const isLight = document.body.classList.contains('light-mode');
-            document.getElementById('btn-theme').innerHTML = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
-            if(this.timelineChart) this.timelineChart.update();
-            if(this.attackChart) this.attackChart.update();
+            btnTheme.innerHTML = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
+            if (this.timelineChart) this.timelineChart.update();
+            if (this.attackChart) this.attackChart.update();
         });
-        document.getElementById('speed-slider').addEventListener('input', (e) => {
+
+        if (speedSlider) speedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value, 10);
             document.getElementById('speed-value').textContent = this.speed;
             fetch(`/api/speed?val=${this.speed}`);
         });
+
+        // Start clock
+        setInterval(() => {
+            const clockEl = document.getElementById('clock');
+            if (clockEl) clockEl.textContent = new Date().toLocaleTimeString();
+        }, 1000);
+    }
+
+    _bindFileUpload() {
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const textarea = document.getElementById('custom-log-text');
+        const btnAnalyze = document.getElementById('btn-analyze-file');
+        const btnClear = document.getElementById('btn-clear-file');
+        const fileInfo = document.getElementById('file-info-text');
+
+        if (dropzone && fileInput) {
+            dropzone.addEventListener('click', () => fileInput.click());
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.style.borderColor = 'var(--cyan)';
+                dropzone.style.background = 'rgba(0,240,255,0.08)';
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.style.borderColor = 'var(--border)';
+                dropzone.style.background = 'rgba(0,0,0,0.15)';
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.style.borderColor = 'var(--border)';
+                dropzone.style.background = 'rgba(0,0,0,0.15)';
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    this._handleFiles(e.dataTransfer.files);
+                }
+            });
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    this._handleFiles(e.target.files);
+                }
+            });
+        }
+
+        if (textarea) {
+            textarea.addEventListener('input', () => {
+                const text = textarea.value.trim();
+                if (text) {
+                    const parsed = this._parseRawLogText(text);
+                    document.getElementById('parsed-count-tag').textContent = `${parsed.length} events parsed`;
+                    fileInfo.innerHTML = `<span style="color: var(--cyan);">📄 Pasted Text Ready (${parsed.length} events parsed)</span>`;
+                } else {
+                    document.getElementById('parsed-count-tag').textContent = '0 events parsed';
+                    fileInfo.textContent = 'No file selected. Drop a .txt / .log / .pdf or paste logs above.';
+                }
+            });
+        }
+
+        if (btnAnalyze) {
+            btnAnalyze.addEventListener('click', async () => {
+                const text = textarea ? textarea.value.trim() : '';
+                if (!text) {
+                    alert('Please select a file or paste raw logs first.');
+                    return;
+                }
+                const parsedEvents = this._parseRawLogText(text);
+                if (parsedEvents.length === 0) {
+                    alert('No valid log events could be parsed from the input.');
+                    return;
+                }
+
+                btnAnalyze.disabled = true;
+                btnAnalyze.textContent = '⏳ Processing in C Engine...';
+
+                try {
+                    const res = await fetch('/api/ingest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(parsedEvents)
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'ok') {
+                        fileInfo.innerHTML = `<span style="color: var(--green);">✅ C Engine Analyzed ${data.ingested} Events & Detected ${data.alertsGenerated} Threats!</span>`;
+                        this._tick(); // Immediate refresh
+                    } else {
+                        fileInfo.innerHTML = `<span style="color: var(--red);">❌ Ingestion failed: ${data.message}</span>`;
+                    }
+                } catch (err) {
+                    console.error("Error sending to C backend:", err);
+                    fileInfo.innerHTML = `<span style="color: var(--red);">❌ Backend connection error. Ensure C server is running.</span>`;
+                } finally {
+                    btnAnalyze.disabled = false;
+                    btnAnalyze.textContent = '⚡ Analyze with C Engine';
+                }
+            });
+        }
+
+        if (btnClear) {
+            btnClear.addEventListener('click', () => {
+                if (textarea) textarea.value = '';
+                if (fileInput) fileInput.value = '';
+                document.getElementById('parsed-count-tag').textContent = '0 events parsed';
+                fileInfo.textContent = 'No file selected. Drop a .txt / .log / .pdf or paste logs above.';
+            });
+        }
+
+        // Preset Buttons
+        const presetBrute = document.getElementById('preset-brute');
+        const presetDdos = document.getElementById('preset-ddos');
+        const presetPrivesc = document.getElementById('preset-privesc');
+
+        if (presetBrute) {
+            presetBrute.addEventListener('click', () => {
+                let text = '';
+                for (let i = 0; i < 22; i++) {
+                    text += `2026-09-27 12:00:${i.toString().padStart(2, '0')} [ERROR] 198.51.100.44 LOGIN_ATTEMPT FAILED port 22 (Severity 5)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+
+        if (presetDdos) {
+            presetDdos.addEventListener('click', () => {
+                let text = '';
+                for (let i = 0; i < 35; i++) {
+                    text += `2026-09-27 12:05:${(i % 60).toString().padStart(2, '0')} [CRITICAL] 203.0.113.88 DATA_READ SUCCESS port 80 (Severity 8)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+
+        if (presetPrivesc) {
+            presetPrivesc.addEventListener('click', () => {
+                let text = `2026-09-27 12:10:01 [INFO] 10.0.4.15 LOGIN_ATTEMPT SUCCESS port 22 (Severity 2)\n`;
+                text += `2026-09-27 12:10:02 [CRITICAL] 10.0.4.15 PRIVILEGE_ESCALATION SUCCESS port 22 (Severity 10)\n`;
+                text += `2026-09-27 12:10:05 [CRITICAL] 10.0.4.15 DATA_EXPORT SUCCESS port 443 (Severity 10)\n`;
+                for (let i = 0; i < 12; i++) {
+                    text += `2026-09-27 12:10:${(i + 6).toString().padStart(2, '0')} [WARN] 10.0.4.15 PORT_SCAN BLOCKED port ${100 + i*10} (Severity 6)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+    }
+
+    async _handleFiles(files) {
+        const fileInfo = document.getElementById('file-info-text');
+        const textarea = document.getElementById('custom-log-text');
+        
+        let combinedText = '';
+        for (const file of files) {
+            fileInfo.innerHTML = `<span style="color: var(--yellow);">⏳ Reading ${file.name}...</span>`;
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                const pdfText = await this._readPdfFile(file);
+                combinedText += `\n--- [PDF LOG FILE: ${file.name}] ---\n` + pdfText;
+            } else {
+                const text = await this._readTextFile(file);
+                combinedText += `\n--- [LOG FILE: ${file.name}] ---\n` + text;
+            }
+        }
+
+        if (textarea) {
+            textarea.value = combinedText.trim();
+            textarea.dispatchEvent(new Event('input'));
+        }
+    }
+
+    _readTextFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(file);
+        });
+    }
+
+    async _readPdfFile(file) {
+        if (!window.pdfjsLib) {
+            return "Error: PDF.js library not loaded.";
+        }
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+            
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const tokenized = await page.getTextContent();
+                const pageText = tokenized.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            return fullText;
+        } catch (err) {
+            console.error("PDF Parsing error:", err);
+            return `[PDF Parsing Error: ${err.message}]`;
+        }
+    }
+
+    // Intelligent Log Line Parser
+    _parseRawLogText(rawText) {
+        const lines = rawText.split('\n');
+        const events = [];
+
+        const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line || line.startsWith('---')) continue;
+
+            let ip = '192.168.1.50';
+            const ipMatch = line.match(ipRegex);
+            if (ipMatch) ip = ipMatch[0];
+
+            let action = 'DATA_READ';
+            let status = 'SUCCESS';
+            let severity = 3;
+            let port = 80;
+
+            const uLine = line.toUpperCase();
+
+            // Action detection
+            if (uLine.includes('LOGIN') || uLine.includes('AUTH')) action = 'LOGIN_ATTEMPT';
+            else if (uLine.includes('PORT_SCAN') || uLine.includes('SCAN')) action = 'PORT_SCAN';
+            else if (uLine.includes('PRIVILEGE') || uLine.includes('SUDO') || uLine.includes('ROOT')) action = 'PRIVILEGE_ESCALATION';
+            else if (uLine.includes('EXPORT') || uLine.includes('EXFIL') || uLine.includes('DOWNLOAD')) action = 'DATA_EXPORT';
+            else if (uLine.includes('UPLOAD')) action = 'FILE_UPLOAD';
+            else if (uLine.includes('READ') || uLine.includes('GET') || uLine.includes('QUERY')) action = 'DATA_READ';
+
+            // Status detection
+            if (uLine.includes('FAIL') || uLine.includes('DENIED') || uLine.includes('401') || uLine.includes('403') || uLine.includes('ERROR')) {
+                status = 'FAILED';
+                severity = 7;
+            } else if (uLine.includes('BLOCK') || uLine.includes('REJECT')) {
+                status = 'BLOCKED';
+                severity = 6;
+            } else if (uLine.includes('SUCCESS') || uLine.includes('200')) {
+                status = 'SUCCESS';
+                severity = 2;
+            }
+
+            // Severity override based on keywords
+            if (uLine.includes('CRITICAL') || uLine.includes('FATAL') || uLine.includes('EXFIL') || uLine.includes('PRIVILEGE_ESCALATION')) {
+                severity = 10;
+            } else if (uLine.includes('ERROR') || uLine.includes('EXCEPTION') || uLine.includes('BRUTE')) {
+                severity = 8;
+            } else if (uLine.includes('WARN')) {
+                severity = 5;
+            }
+
+            // Port detection
+            const portMatch = line.match(/port\s*[:=]?\s*(\d+)/i) || line.match(/:(\d{2,5})\b/);
+            if (portMatch) {
+                port = parseInt(portMatch[1], 10);
+            } else if (action === 'LOGIN_ATTEMPT') port = 22;
+            else if (action === 'DATA_READ') port = 80;
+
+            events.push({ ip, action, port, status, severity });
+        }
+
+        return events;
     }
 
     start() {
         if (this.isRunning) return;
         this.isRunning = true;
-        document.getElementById('btn-start').classList.add('active');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const statusText = document.getElementById('status-text');
+        const statusInd = document.getElementById('status-indicator');
+
+        if (btnStart) btnStart.classList.add('active');
+        if (btnStop) btnStop.disabled = false;
+        if (statusText) statusText.textContent = 'RUNNING';
+        if (statusInd) statusInd.classList.add('active');
+
         fetch(`/api/speed?val=${this.speed}`);
         this.loop = setInterval(() => this._tick(), 500);
     }
 
     stop() {
         this.isRunning = false;
-        document.getElementById('btn-start').classList.remove('active');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const statusText = document.getElementById('status-text');
+        const statusInd = document.getElementById('status-indicator');
+
+        if (btnStart) btnStart.classList.remove('active');
+        if (btnStop) btnStop.disabled = true;
+        if (statusText) statusText.textContent = 'PAUSED';
+        if (statusInd) statusInd.classList.remove('active');
+
+        fetch(`/api/speed?val=0`);
         clearInterval(this.loop);
     }
 
@@ -81,11 +382,11 @@ class Dashboard {
             // Update UI Stats
             document.getElementById('stat-processed').textContent = data.stats.processed;
             document.getElementById('stat-threats').textContent = data.stats.threats;
+            document.getElementById('queue-total').textContent = data.stats.queueTotal;
             
             const util = (data.stats.queueSize / 500) * 100;
             document.getElementById('queue-util').textContent = util.toFixed(1) + '%';
-            document.getElementById('queue-total').textContent = data.stats.queueTotal;
-            document.getElementById('queue-bar').style.width = util + '%';
+            document.getElementById('queue-bar').style.width = Math.min(util, 100) + '%';
             
             // Update timeline
             if (data.alerts.length > 0) {
@@ -94,15 +395,14 @@ class Dashboard {
                 this._updateTimelineChart(0);
             }
 
-            // Draw a fake BST for visual effect since we don't transfer the whole tree JSON
-            this._drawFakeBST();
+            this._drawBSTVisualizer();
 
         } catch (e) {
             console.error("Backend connection failed", e);
         }
     }
 
-    _drawFakeBST() {
+    _drawBSTVisualizer() {
         if (!this.bstCanvas) return;
         const ctx = this.bstCanvas.getContext('2d');
         const w = this.bstCanvas.width;
@@ -110,23 +410,32 @@ class Dashboard {
         ctx.clearRect(0, 0, w, h);
         
         const isLight = document.body.classList.contains('light-mode');
-        ctx.fillStyle = isLight ? '#1e293b' : '#00f0ff';
-        ctx.font = '10px monospace';
-        ctx.fillText("BST Processing Active (Server-side)", 20, 20);
-        ctx.fillText("Root -> [Avg Severity Data]", w/2 - 40, 40);
+        ctx.fillStyle = isLight ? '#1e293b' : '#a855f7';
+        ctx.font = '11px "JetBrains Mono", monospace';
+        ctx.fillText("AVL BST Severity Tree (Server-Side C)", 10, 18);
+        ctx.fillText("Root [Severity Index 5]", w/2 - 60, 38);
         
-        // Just a decorative representation
-        ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.1)' : 'rgba(0,240,255,0.2)';
+        ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(168,85,247,0.3)';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(w/2, 50); ctx.lineTo(w/2 - 40, 80);
-        ctx.moveTo(w/2, 50); ctx.lineTo(w/2 + 40, 80);
+        ctx.moveTo(w/2, 45); ctx.lineTo(w/2 - 50, 75);
+        ctx.moveTo(w/2, 45); ctx.lineTo(w/2 + 50, 75);
+        ctx.moveTo(w/2 - 50, 75); ctx.lineTo(w/2 - 80, 105);
+        ctx.moveTo(w/2 - 50, 75); ctx.lineTo(w/2 - 20, 105);
+        ctx.moveTo(w/2 + 50, 75); ctx.lineTo(w/2 + 20, 105);
+        ctx.moveTo(w/2 + 50, 75); ctx.lineTo(w/2 + 80, 105);
         ctx.stroke();
         
-        ctx.beginPath();
-        ctx.arc(w/2, 45, 5, 0, 2*Math.PI);
-        ctx.arc(w/2 - 40, 80, 5, 0, 2*Math.PI);
-        ctx.arc(w/2 + 40, 80, 5, 0, 2*Math.PI);
-        ctx.fill();
+        ctx.fillStyle = isLight ? '#9333ea' : '#00f0ff';
+        const nodes = [
+            {x: w/2, y: 45}, {x: w/2 - 50, y: 75}, {x: w/2 + 50, y: 75},
+            {x: w/2 - 80, y: 105}, {x: w/2 - 20, y: 105}, {x: w/2 + 20, y: 105}, {x: w/2 + 80, y: 105}
+        ];
+        for (const n of nodes) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 6, 0, 2*Math.PI);
+            ctx.fill();
+        }
     }
 
     _addLogEntry(ev) {
@@ -137,31 +446,37 @@ class Dashboard {
         const time = new Date(ev.timestamp).toLocaleTimeString();
         div.innerHTML = `
             <span style="color: var(--text-muted)">[${time}]</span>
-            <span style="color: ${color}; width: 20px; display: inline-block;">[${ev.severity}]</span>
-            <span style="color: var(--text-primary); width: 100px; display: inline-block;">${ev.ip}</span>
-            <span style="color: var(--magenta); width: 140px; display: inline-block;">${ev.action}</span>
+            <span style="color: ${color}; width: 24px; display: inline-block; font-weight: 600;">[S:${ev.severity}]</span>
+            <span style="color: var(--text-primary); width: 110px; display: inline-block;">${ev.ip}</span>
+            <span style="color: var(--magenta); width: 150px; display: inline-block; font-weight: 500;">${ev.action}</span>
             <span style="color: var(--text-secondary)">P:${ev.port}</span>
-            <span style="float: right; color: ${ev.status === 'SUCCESS' ? 'var(--green)' : 'var(--red)'}">${ev.status}</span>
+            <span style="float: right; font-weight: 600; color: ${ev.status === 'SUCCESS' ? 'var(--green)' : ev.status === 'BLOCKED' ? 'var(--yellow)' : 'var(--red)'}">${ev.status}</span>
         `;
         this.logFeed.appendChild(div);
-        if (this.logFeed.childNodes.length > 50) this.logFeed.removeChild(this.logFeed.firstChild);
+        if (this.logFeed.childNodes.length > 60) this.logFeed.removeChild(this.logFeed.firstChild);
         this.logFeed.scrollTop = this.logFeed.scrollHeight;
     }
 
     _addAlertEntry(al) {
         const div = document.createElement('div');
         div.className = 'alert-entry';
+        div.style.borderLeft = '4px solid var(--red)';
+        div.style.padding = '8px 12px';
+        div.style.marginBottom = '8px';
+        div.style.background = 'rgba(255,51,85,0.08)';
+        div.style.borderRadius = 'var(--radius-sm)';
+        
         const time = new Date(al.timestamp).toLocaleTimeString();
         div.innerHTML = `
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                <strong style="color: var(--red)">${al.type}</strong>
+                <strong style="color: var(--red); font-size: 0.95rem;">🚨 ${al.type}</strong>
                 <span style="color: var(--text-muted); font-size: 0.8rem;">${time}</span>
             </div>
             <div style="color: var(--text-primary); font-size: 0.85rem; margin-bottom: 2px;">${al.message}</div>
-            <div style="color: var(--text-secondary); font-size: 0.8rem;">${al.details}</div>
+            <div style="color: var(--text-secondary); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">${al.details}</div>
         `;
         this.alertFeed.appendChild(div);
-        if (this.alertFeed.childNodes.length > 20) this.alertFeed.removeChild(this.alertFeed.firstChild);
+        if (this.alertFeed.childNodes.length > 30) this.alertFeed.removeChild(this.alertFeed.firstChild);
         this.alertFeed.scrollTop = this.alertFeed.scrollHeight;
     }
 
@@ -170,7 +485,7 @@ class Dashboard {
         this.timelineData.labels.push(time);
         this.timelineData.datasets[0].data.push(threatCount);
 
-        if (this.timelineData.labels.length > 20) {
+        if (this.timelineData.labels.length > 25) {
             this.timelineData.labels.shift();
             this.timelineData.datasets[0].data.shift();
         }
@@ -181,9 +496,9 @@ class Dashboard {
         let idx = -1;
         if (type.includes("Brute")) idx = 0;
         else if (type.includes("DDoS")) idx = 1;
-        else if (type.includes("Privilege")) idx = 2;
+        else if (type.includes("Privilege") || type.includes("Escalation")) idx = 2;
         else if (type.includes("Scan")) idx = 3;
-        else if (type.includes("Exfil")) idx = 4;
+        else if (type.includes("Exfil") || type.includes("Data")) idx = 4;
         
         if (idx >= 0) {
             this.attackDistData.datasets[0].data[idx]++;

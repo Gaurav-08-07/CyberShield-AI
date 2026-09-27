@@ -122,6 +122,7 @@ BSTNode* bst_new_node(LogEvent event) {
 }
 
 BSTNode* bst_right_rotate(BSTNode* y) {
+    if (y == NULL || y->left == NULL) return y;
     BSTNode* x = y->left;
     BSTNode* T2 = x->right;
     x->right = y;
@@ -132,6 +133,7 @@ BSTNode* bst_right_rotate(BSTNode* y) {
 }
 
 BSTNode* bst_left_rotate(BSTNode* x) {
+    if (x == NULL || x->right == NULL) return x;
     BSTNode* y = x->right;
     BSTNode* T2 = y->left;
     y->left = x;
@@ -161,15 +163,15 @@ BSTNode* bst_insert_node(BSTNode* node, LogEvent event) {
     node->height = 1 + max(bst_height(node->left), bst_height(node->right));
     int balance = bst_get_balance(node);
 
-    if (balance > 1 && event.severity < node->left->event.severity)
+    if (balance > 1 && node->left && event.severity < node->left->event.severity)
         return bst_right_rotate(node);
-    if (balance < -1 && event.severity > node->right->event.severity)
+    if (balance < -1 && node->right && event.severity > node->right->event.severity)
         return bst_left_rotate(node);
-    if (balance > 1 && event.severity >= node->left->event.severity) {
+    if (balance > 1 && node->left && event.severity >= node->left->event.severity) {
         node->left = bst_left_rotate(node->left);
         return bst_right_rotate(node);
     }
-    if (balance < -1 && event.severity <= node->right->event.severity) {
+    if (balance < -1 && node->right && event.severity <= node->right->event.severity) {
         node->right = bst_right_rotate(node->right);
         return bst_left_rotate(node);
     }
@@ -226,7 +228,9 @@ Stack* stack_create() {
 }
 
 bool stack_push(Stack* s, LogEvent event) {
-    if (s->top >= STACK_CAPACITY - 1) return false;
+    if (s->top >= STACK_CAPACITY - 1) {
+        s->top = STACK_CAPACITY / 2;
+    }
     s->buffer[++(s->top)] = event;
     return true;
 }
