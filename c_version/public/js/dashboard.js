@@ -387,7 +387,12 @@ class Dashboard {
             const util = (data.stats.queueSize / 500) * 100;
             document.getElementById('queue-util').textContent = util.toFixed(1) + '%';
             document.getElementById('queue-bar').style.width = Math.min(util, 100) + '%';
-            
+
+            // Render DS Visualizer Panels
+            if (data.queueItems) this._renderQueueItems(data.queueItems, data.stats.queueSize);
+            if (data.topIps) this._renderHashTableItems(data.topIps);
+            if (data.stackItems) this._renderStackItems(data.stackItems, data.stats.stackDepth);
+
             // Update timeline
             if (data.alerts.length > 0) {
                 this._updateTimelineChart(data.alerts.length);
@@ -400,6 +405,95 @@ class Dashboard {
         } catch (e) {
             console.error("Backend connection failed", e);
         }
+    }
+
+    _renderQueueItems(items, queueSize) {
+        const container = document.getElementById('queue-viz-items');
+        const statsEl = document.getElementById('queue-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Queue Size: <b>${queueSize}</b>/500</span>`;
+        if (!container) return;
+
+        if (!items || items.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">Queue empty</div>';
+            return;
+        }
+
+        let html = '';
+        items.forEach((item, idx) => {
+            const color = item.severity > 7 ? 'var(--red)' : item.severity > 4 ? 'var(--orange)' : 'var(--cyan)';
+            html += `
+                <div class="queue-item" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,240,255,0.06); border-left: 3px solid ${color}; padding: 6px 10px; margin-bottom: 6px; border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+                    <div>
+                        <span style="color: var(--text-muted); font-size: 0.72rem;">#${idx+1}</span>
+                        <span style="color: var(--text-primary); margin-left: 4px;">${item.ip}</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--magenta); margin-right: 6px;">${item.action}</span>
+                        <span style="color: ${color}; font-weight: 600;">[S:${item.severity}]</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    _renderHashTableItems(topIps) {
+        const container = document.getElementById('hash-top-ips');
+        const statsEl = document.getElementById('hash-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Tracked IP Buckets: <b>1024</b> (Top Active IPs)</span>`;
+        if (!container) return;
+
+        if (!topIps || topIps.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">No IP buckets populated</div>';
+            return;
+        }
+
+        const maxCount = Math.max(...topIps.map(i => i.count), 1);
+        let html = '';
+        topIps.forEach(item => {
+            const pct = Math.min((item.count / maxCount) * 100, 100);
+            html += `
+                <div style="margin-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 2px;">
+                        <span style="color: var(--green); font-weight: 500;">${item.ip}</span>
+                        <span style="color: var(--text-secondary);">${item.count} hits</span>
+                    </div>
+                    <div style="height: 5px; background: rgba(0,255,136,0.1); border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${pct}%; height: 100%; background: var(--green); border-radius: 3px;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    }
+
+    _renderStackItems(items, stackDepth) {
+        const container = document.getElementById('stack-items');
+        const statsEl = document.getElementById('stack-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Stack Depth (LIFO): <b>${stackDepth || items.length}</b></span>`;
+        if (!container) return;
+
+        if (!items || items.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">Stack empty</div>';
+            return;
+        }
+
+        let html = '';
+        items.forEach((item, idx) => {
+            const isTop = idx === 0;
+            html += `
+                <div class="stack-item" style="display: flex; justify-content: space-between; align-items: center; background: ${isTop ? 'rgba(255,107,53,0.12)' : 'rgba(0,0,0,0.2)'}; border: 1px solid ${isTop ? 'var(--orange)' : 'var(--border)'}; padding: 6px 10px; margin-bottom: 6px; border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+                    <div>
+                        <span style="color: ${isTop ? 'var(--orange)' : 'var(--text-muted)'}; font-weight: 600; font-size: 0.75rem;">${isTop ? 'TOP ➔' : `[${idx}]`}</span>
+                        <span style="color: var(--text-primary); margin-left: 6px;">${item.ip}</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--magenta);">${item.action}</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
     }
 
     _drawBSTVisualizer() {

@@ -46,6 +46,7 @@ Queue* queue_create();
 bool queue_enqueue(Queue* q, LogEvent event);
 bool queue_dequeue(Queue* q, LogEvent* out_event);
 bool queue_is_empty(Queue* q);
+int queue_get_items(Queue* q, LogEvent* out_events, int max_items);
 void queue_free(Queue* q);
 
 // --- Hash Table (Chaining) ---
@@ -62,6 +63,7 @@ typedef struct {
 HashTable* hash_table_create();
 void hash_table_insert(HashTable* ht, const char* key);
 int hash_table_get(HashTable* ht, const char* key);
+int hash_table_get_top(HashTable* ht, char out_keys[][MAX_STR_LEN], int out_counts[], int max_items);
 void hash_table_free(HashTable* ht);
 
 // --- BST (AVL Tree) ---
@@ -91,6 +93,7 @@ Stack* stack_create();
 bool stack_push(Stack* s, LogEvent event);
 bool stack_pop(Stack* s, LogEvent* out_event);
 bool stack_peek(Stack* s, LogEvent* out_event);
+int stack_get_items(Stack* s, LogEvent* out_events, int max_items);
 void stack_clear(Stack* s);
 void stack_free(Stack* s);
 

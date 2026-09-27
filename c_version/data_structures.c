@@ -37,6 +37,17 @@ bool queue_is_empty(Queue* q) {
     return q->size == 0;
 }
 
+int queue_get_items(Queue* q, LogEvent* out_events, int max_items) {
+    if (q == NULL || q->size == 0) return 0;
+    int count = 0;
+    int idx = q->head;
+    while (count < q->size && count < max_items) {
+        out_events[count++] = q->buffer[idx];
+        idx = (idx + 1) % q->capacity;
+    }
+    return count;
+}
+
 void queue_free(Queue* q) {
     free(q);
 }
@@ -88,6 +99,44 @@ int hash_table_get(HashTable* ht, const char* key) {
         node = node->next;
     }
     return 0;
+}
+
+int hash_table_get_top(HashTable* ht, char out_keys[][MAX_STR_LEN], int out_counts[], int max_items) {
+    if (ht == NULL) return 0;
+    
+    typedef struct { char key[MAX_STR_LEN]; int count; } Entry;
+    Entry temp[256];
+    int total = 0;
+    
+    for (int i = 0; i < HASH_TABLE_SIZE && total < 256; i++) {
+        HashNode* node = ht->buckets[i];
+        while (node && total < 256) {
+            if (strchr(node->key, '.') != NULL) {
+                strncpy(temp[total].key, node->key, MAX_STR_LEN - 1);
+                temp[total].key[MAX_STR_LEN - 1] = '\0';
+                temp[total].count = node->count;
+                total++;
+            }
+            node = node->next;
+        }
+    }
+    
+    for (int i = 0; i < total - 1; i++) {
+        for (int j = i + 1; j < total; j++) {
+            if (temp[j].count > temp[i].count) {
+                Entry swap = temp[i];
+                temp[i] = temp[j];
+                temp[j] = swap;
+            }
+        }
+    }
+    
+    int result_count = total < max_items ? total : max_items;
+    for (int i = 0; i < result_count; i++) {
+        strcpy(out_keys[i], temp[i].key);
+        out_counts[i] = temp[i].count;
+    }
+    return result_count;
 }
 
 void hash_table_free(HashTable* ht) {
@@ -245,6 +294,15 @@ bool stack_peek(Stack* s, LogEvent* out_event) {
     if (s->top < 0) return false;
     *out_event = s->buffer[s->top];
     return true;
+}
+
+int stack_get_items(Stack* s, LogEvent* out_events, int max_items) {
+    if (s == NULL || s->top < 0) return 0;
+    int count = 0;
+    for (int i = s->top; i >= 0 && count < max_items; i--) {
+        out_events[count++] = s->buffer[i];
+    }
+    return count;
 }
 
 void stack_clear(Stack* s) {

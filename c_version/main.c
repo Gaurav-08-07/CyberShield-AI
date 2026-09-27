@@ -145,8 +145,11 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
         
         if (mg_match(hm->uri, mg_str("/api/state"), NULL)) {
             static char buf[32768];
-            static char logs_json[16384];
-            static char alerts_json[16384];
+            static char logs_json[8192];
+            static char alerts_json[8192];
+            static char queue_json[4096];
+            static char ips_json[4096];
+            static char stack_json[4096];
             
             // Build logs array
             strcpy(logs_json, "[");
@@ -172,9 +175,48 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
             }
             strcat(alerts_json, "]");
             
-            sprintf(buf, "{\"stats\":{\"processed\":%d,\"threats\":%d,\"queueSize\":%d,\"queueTotal\":%d},\"logs\":%s,\"alerts\":%s}",
-                analyzer->processed_count, analyzer->threat_count, analyzer->queue->size, analyzer->queue->total_in,
-                logs_json, alerts_json);
+            // Build queueItems array
+            LogEvent q_items[12];
+            int q_count = queue_get_items(analyzer->queue, q_items, 12);
+            strcpy(queue_json, "[");
+            for(int i=0; i<q_count; i++) {
+                char item[256];
+                sprintf(item, "{\"id\":%d,\"ip\":\"%s\",\"action\":\"%s\",\"port\":%d,\"status\":\"%s\",\"severity\":%d}%s",
+                    q_items[i].id, q_items[i].ip, q_items[i].action, q_items[i].port, q_items[i].status, q_items[i].severity,
+                    (i == q_count - 1) ? "" : ",");
+                strcat(queue_json, item);
+            }
+            strcat(queue_json, "]");
+            
+            // Build topIps array from Hash Table
+            char top_ips[8][MAX_STR_LEN];
+            int top_counts[8];
+            int ip_count = hash_table_get_top(analyzer->ip_freq, top_ips, top_counts, 8);
+            strcpy(ips_json, "[");
+            for(int i=0; i<ip_count; i++) {
+                char item[128];
+                sprintf(item, "{\"ip\":\"%s\",\"count\":%d}%s",
+                    top_ips[i], top_counts[i], (i == ip_count - 1) ? "" : ",");
+                strcat(ips_json, item);
+            }
+            strcat(ips_json, "]");
+            
+            // Build stackItems array
+            LogEvent s_items[8];
+            int s_count = stack_get_items(analyzer->event_stack, s_items, 8);
+            strcpy(stack_json, "[");
+            for(int i=0; i<s_count; i++) {
+                char item[256];
+                sprintf(item, "{\"id\":%d,\"ip\":\"%s\",\"action\":\"%s\",\"port\":%d,\"status\":\"%s\",\"severity\":%d}%s",
+                    s_items[i].id, s_items[i].ip, s_items[i].action, s_items[i].port, s_items[i].status, s_items[i].severity,
+                    (i == s_count - 1) ? "" : ",");
+                strcat(stack_json, item);
+            }
+            strcat(stack_json, "]");
+            
+            sprintf(buf, "{\"stats\":{\"processed\":%d,\"threats\":%d,\"queueSize\":%d,\"queueTotal\":%d,\"stackDepth\":%d},\"logs\":%s,\"alerts\":%s,\"queueItems\":%s,\"topIps\":%s,\"stackItems\":%s}",
+                analyzer->processed_count, analyzer->threat_count, analyzer->queue->size, analyzer->queue->total_in, (analyzer->event_stack->top + 1 > 0 ? analyzer->event_stack->top + 1 : 0),
+                logs_json, alerts_json, queue_json, ips_json, stack_json);
             
             mg_http_reply(c, 200, "Content-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n", buf);
             
