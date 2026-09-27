@@ -247,7 +247,7 @@ int main(void) {
     }
     
     printf("==================================================\n");
-    printf("  CyberShield AI C Server Listening on %s  \n", s_listen_on);
+    printf("  CyberShield-AI C Server Listening on %s  \n", s_listen_on);
     printf("==================================================\n");
     fflush(stdout);
     
