@@ -9,6 +9,13 @@ class Dashboard {
         this.timelineData = { labels: [], datasets: [{ label: 'Threats', data: [], borderColor: '#ff0055', backgroundColor: 'rgba(255,0,85,0.1)', fill: true, tension: 0.4 }] };
         this.attackDistData = { labels: ['Brute Force', 'DDoS', 'PrivEsc', 'Port Scan', 'Exfil'], datasets: [{ data: [0, 0, 0, 0, 0], backgroundColor: ['#00f0ff', '#ff0055', '#b500ff', '#ffaa00', '#00ffaa'] }] };
         
+        // Client-side fallback simulation state (for GitHub Pages / offline mode)
+        this.simStats = { processed: 0, threats: 0, queueTotal: 0, queueSize: 0, stackDepth: 0 };
+        this.simQueue = [];
+        this.simIpCounts = {};
+        this.simStack = [];
+        this.simFailedLogins = {};
+
         this._initCharts();
         this._bindControls();
         this._bindFileUpload();
@@ -49,9 +56,14 @@ class Dashboard {
         if (btnStop) btnStop.addEventListener('click', () => this.stop());
         if (btnReset) btnReset.addEventListener('click', () => {
             this.stop();
-            fetch(this._apiUrl('/api/reset'));
-            this.logFeed.innerHTML = '';
-            this.alertFeed.innerHTML = '';
+            fetch(this._apiUrl('/api/reset')).catch(() => {});
+            this.simStats = { processed: 0, threats: 0, queueTotal: 0, queueSize: 0, stackDepth: 0 };
+            this.simQueue = [];
+            this.simIpCounts = {};
+            this.simStack = [];
+            this.simFailedLogins = {};
+            if (this.logFeed) this.logFeed.innerHTML = '';
+            if (this.alertFeed) this.alertFeed.innerHTML = '';
             document.getElementById('stat-processed').textContent = '0';
             document.getElementById('stat-threats').textContent = '0';
             document.getElementById('queue-total').textContent = '0';
@@ -62,6 +74,9 @@ class Dashboard {
             this.timelineData.labels = [];
             this.timelineData.datasets[0].data = [];
             this.timelineChart.update();
+            this._renderQueueItems([], 0);
+            this._renderHashTableItems([]);
+            this._renderStackItems([], 0);
         });
 
         if (btnTheme) btnTheme.addEventListener('click', () => {
@@ -75,7 +90,7 @@ class Dashboard {
         if (speedSlider) speedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value, 10);
             document.getElementById('speed-value').textContent = this.speed;
-            fetch(this._apiUrl(`/api/speed?val=${this.speed}`));
+            fetch(this._apiUrl(`/api/speed?val=${this.speed}`)).catch(() => {});
         });
 
         // Start clock
@@ -147,7 +162,7 @@ class Dashboard {
                 }
 
                 btnAnalyze.disabled = true;
-                btnAnalyze.textContent = '⏳ Processing in C Engine...';
+                btnAnalyze.textContent = '⏳ Processing...';
 
                 try {
                     const res = await fetch(this._apiUrl('/api/ingest'), {
@@ -155,6 +170,7 @@ class Dashboard {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(parsedEvents)
                     });
+                    if (!res.ok) throw new Error("HTTP " + res.status);
                     const data = await res.json();
                     
                     if (data.status === 'ok') {
@@ -164,11 +180,35 @@ class Dashboard {
                         fileInfo.innerHTML = `<span style="color: var(--red);">❌ Ingestion failed: ${data.message}</span>`;
                     }
                 } catch (err) {
-                    console.error("Error sending to C backend:", err);
-                    fileInfo.innerHTML = `<span style="color: var(--red);">❌ Backend connection error. Ensure C server is running.</span>`;
+                    // Fallback client simulation ingestion for GitHub Pages / offline
+                    let threatsDetected = 0;
+                    for (const ev of parsedEvents) {
+                        this.simStats.processed++;
+                        this.simStats.queueTotal++;
+                        this.simQueue.unshift({ ip: ev.ip, action: ev.action, severity: ev.severity });
+                        if (this.simQueue.length > 500) this.simQueue.pop();
+
+                        this.simIpCounts[ev.ip] = (this.simIpCounts[ev.ip] || 0) + 1;
+                        this._addLogEntry({ ...ev, timestamp: new Date().toISOString() });
+
+                        if (ev.severity >= 8) {
+                            threatsDetected++;
+                            this.simStats.threats++;
+                            const alertObj = {
+                                type: ev.action === 'PRIVILEGE_ESCALATION' ? 'Privilege Escalation' : ev.severity === 10 ? 'Critical Threat' : 'Brute Force / Scan',
+                                message: `Log Analysis Threat detected from ${ev.ip}`,
+                                details: `Action: ${ev.action} | Port: ${ev.port} | Status: ${ev.status}`,
+                                timestamp: new Date().toISOString()
+                            };
+                            this._addAlertEntry(alertObj);
+                            this._updateAttackChart(alertObj.type);
+                        }
+                    }
+                    fileInfo.innerHTML = `<span style="color: var(--green);">✅ Analyzed ${parsedEvents.length} Events & Detected ${threatsDetected} Threats!</span>`;
+                    this._runClientSimulationTick();
                 } finally {
                     btnAnalyze.disabled = false;
-                    btnAnalyze.textContent = '⚡ Analyze with C Engine';
+                    btnAnalyze.textContent = '⚡ Analyze Log Document';
                 }
             });
         }
@@ -280,7 +320,6 @@ class Dashboard {
     _parseRawLogText(rawText) {
         const lines = rawText.split('\n');
         const events = [];
-
         const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/;
 
         for (let i = 0; i < lines.length; i++) {
@@ -356,7 +395,7 @@ class Dashboard {
         if (statusText) statusText.textContent = 'RUNNING';
         if (statusInd) statusInd.classList.add('active');
 
-        fetch(this._apiUrl(`/api/speed?val=${this.speed || 5}`));
+        fetch(this._apiUrl(`/api/speed?val=${this.speed || 5}`)).catch(() => {});
         if (!this.loop) {
             this.loop = setInterval(() => this._tick(), 500);
         }
@@ -377,12 +416,14 @@ class Dashboard {
         if (statusText) statusText.textContent = 'PAUSED';
         if (statusInd) statusInd.classList.remove('active');
 
-        fetch(this._apiUrl(`/api/speed?val=0`));
+        fetch(this._apiUrl(`/api/speed?val=0`)).catch(() => {});
     }
 
     async _tick() {
+        if (!this.isRunning) return;
         try {
             const res = await fetch(this._apiUrl('/api/state'));
+            if (!res.ok) throw new Error("HTTP " + res.status);
             const data = await res.json();
             
             // Append logs
@@ -420,7 +461,127 @@ class Dashboard {
             this._drawBSTVisualizer();
 
         } catch (e) {
-            console.error("Backend connection failed", e);
+            // Server unavailable (GitHub Pages or offline) -> Client-side Simulation Engine
+            this._runClientSimulationTick();
+        }
+    }
+
+    _runClientSimulationTick() {
+        if (!this.isRunning) return;
+
+        const ips = ['198.51.100.44', '203.0.113.88', '192.168.1.105', '10.0.4.15', '192.168.1.50', '172.16.0.88', '10.0.0.12'];
+        const actions = ['LOGIN_ATTEMPT', 'DATA_READ', 'PORT_SCAN', 'PRIVILEGE_ESCALATION', 'DATA_EXPORT', 'FILE_UPLOAD'];
+        const statuses = ['SUCCESS', 'FAILED', 'BLOCKED'];
+        const ports = [22, 80, 443, 8080, 21, 3389];
+
+        const count = Math.floor(Math.random() * 2) + 1; // 1 or 2 events per tick
+        let alertsThisTick = 0;
+
+        for (let i = 0; i < count; i++) {
+            const ip = ips[Math.floor(Math.random() * ips.length)];
+            const action = actions[Math.floor(Math.random() * actions.length)];
+            let status = statuses[Math.floor(Math.random() * statuses.length)];
+            const port = ports[Math.floor(Math.random() * ports.length)];
+            
+            let severity = 3;
+            if (status === 'FAILED') severity = 7;
+            if (status === 'BLOCKED') severity = 6;
+            if (action === 'PRIVILEGE_ESCALATION' || action === 'DATA_EXPORT') {
+                severity = 10;
+                status = 'SUCCESS';
+            }
+
+            const timestamp = new Date().toISOString();
+            const ev = { ip, action, port, status, severity, timestamp };
+
+            this.simStats.processed++;
+            this.simStats.queueTotal++;
+
+            // Queue simulation
+            this.simQueue.unshift({ ip, action, severity });
+            if (this.simQueue.length > 500) this.simQueue.pop();
+
+            // Hash Table IP tracking
+            this.simIpCounts[ip] = (this.simIpCounts[ip] || 0) + 1;
+
+            // Stack tracking for high severity/privesc
+            if (action === 'PRIVILEGE_ESCALATION' || action === 'DATA_EXPORT' || severity >= 8) {
+                this.simStack.unshift({ ip, action, timestamp });
+                if (this.simStack.length > 20) this.simStack.pop();
+            }
+
+            this._addLogEntry(ev);
+
+            // Threat rules check
+            let alertObj = null;
+            if (action === 'LOGIN_ATTEMPT' && status === 'FAILED') {
+                this.simFailedLogins[ip] = (this.simFailedLogins[ip] || 0) + 1;
+                if (this.simFailedLogins[ip] >= 3) {
+                    alertObj = {
+                        type: 'Brute Force Attack',
+                        message: `Multiple failed login attempts detected from IP ${ip}`,
+                        details: `Count: ${this.simFailedLogins[ip]} | Target Port: ${port} | Severity: CRITICAL`,
+                        timestamp
+                    };
+                    this.simFailedLogins[ip] = 0;
+                }
+            } else if (action === 'PRIVILEGE_ESCALATION') {
+                alertObj = {
+                    type: 'Privilege Escalation',
+                    message: `Unauthorized admin escalation sequence on node ${ip}`,
+                    details: `User elevated to root via port ${port} | Stack Depth: ${this.simStack.length}`,
+                    timestamp
+                };
+            } else if (action === 'DATA_EXPORT' && severity >= 9) {
+                alertObj = {
+                    type: 'Data Exfiltration',
+                    message: `Abnormal outbound data transfer detected from ${ip}`,
+                    details: `Port ${port} | Volume: High | Status: ${status}`,
+                    timestamp
+                };
+            } else if (this.simIpCounts[ip] > 0 && this.simIpCounts[ip] % 12 === 0) {
+                alertObj = {
+                    type: 'DDoS Anomaly',
+                    message: `High velocity request flood originating from ${ip}`,
+                    details: `Hits: ${this.simIpCounts[ip]} | Port: ${port}`,
+                    timestamp
+                };
+            }
+
+            if (alertObj) {
+                this.simStats.threats++;
+                alertsThisTick++;
+                this._addAlertEntry(alertObj);
+                this._updateAttackChart(alertObj.type);
+            }
+        }
+
+        // Update Stats DOM
+        document.getElementById('stat-processed').textContent = this.simStats.processed;
+        document.getElementById('stat-threats').textContent = this.simStats.threats;
+        document.getElementById('queue-total').textContent = this.simStats.queueTotal;
+
+        const util = (this.simQueue.length / 500) * 100;
+        document.getElementById('queue-util').textContent = util.toFixed(1) + '%';
+        document.getElementById('queue-bar').style.width = Math.min(util, 100) + '%';
+
+        // Render Data Structures
+        this._renderQueueItems(this.simQueue.slice(0, 10), this.simQueue.length);
+        
+        const topIps = Object.keys(this.simIpCounts)
+            .map(ip => ({ ip, count: this.simIpCounts[ip] }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+        this._renderHashTableItems(topIps);
+
+        this._renderStackItems(this.simStack.slice(0, 5), this.simStack.length);
+        this._drawBSTVisualizer();
+
+        // Update Timeline Chart
+        if (alertsThisTick > 0) {
+            this._updateTimelineChart(alertsThisTick);
+        } else if (Math.random() < 0.2) {
+            this._updateTimelineChart(0);
         }
     }
 
@@ -523,7 +684,7 @@ class Dashboard {
         const isLight = document.body.classList.contains('light-mode');
         ctx.fillStyle = isLight ? '#1e293b' : '#a855f7';
         ctx.font = '11px "JetBrains Mono", monospace';
-        ctx.fillText("AVL BST Severity Tree (Server-Side C)", 10, 18);
+        ctx.fillText("AVL BST Severity Tree", 10, 18);
         ctx.fillText("Root [Severity Index 5]", w/2 - 60, 38);
         
         ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(168,85,247,0.3)';
@@ -550,11 +711,12 @@ class Dashboard {
     }
 
     _addLogEntry(ev) {
+        if (!this.logFeed) return;
         const div = document.createElement('div');
         div.className = 'log-entry';
         const color = ev.severity > 7 ? 'var(--red)' : ev.severity > 4 ? 'var(--orange)' : 'var(--cyan)';
         
-        const time = new Date(ev.timestamp).toLocaleTimeString();
+        const time = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
         div.innerHTML = `
             <span style="color: var(--text-muted)">[${time}]</span>
             <span style="color: ${color}; width: 24px; display: inline-block; font-weight: 600;">[S:${ev.severity}]</span>
@@ -569,6 +731,7 @@ class Dashboard {
     }
 
     _addAlertEntry(al) {
+        if (!this.alertFeed) return;
         const div = document.createElement('div');
         div.className = 'alert-entry';
         div.style.borderLeft = '4px solid var(--red)';
@@ -577,7 +740,7 @@ class Dashboard {
         div.style.background = 'rgba(255,51,85,0.08)';
         div.style.borderRadius = 'var(--radius-sm)';
         
-        const time = new Date(al.timestamp).toLocaleTimeString();
+        const time = al.timestamp ? new Date(al.timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
         div.innerHTML = `
             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
                 <strong style="color: var(--red); font-size: 0.95rem;">🚨 ${al.type}</strong>
@@ -600,18 +763,18 @@ class Dashboard {
             this.timelineData.labels.shift();
             this.timelineData.datasets[0].data.shift();
         }
-        this.timelineChart.update('none');
+        if (this.timelineChart) this.timelineChart.update('none');
     }
 
     _updateAttackChart(type) {
         let idx = -1;
         if (type.includes("Brute")) idx = 0;
-        else if (type.includes("DDoS")) idx = 1;
+        else if (type.includes("DDoS") || type.includes("Traffic")) idx = 1;
         else if (type.includes("Privilege") || type.includes("Escalation")) idx = 2;
         else if (type.includes("Scan")) idx = 3;
         else if (type.includes("Exfil") || type.includes("Data")) idx = 4;
         
-        if (idx >= 0) {
+        if (idx >= 0 && this.attackChart) {
             this.attackDistData.datasets[0].data[idx]++;
             this.attackChart.update();
         }
