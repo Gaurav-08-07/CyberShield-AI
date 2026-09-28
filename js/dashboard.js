@@ -348,13 +348,18 @@ class Dashboard {
         const statusText = document.getElementById('status-text');
         const statusInd = document.getElementById('status-indicator');
 
-        if (btnStart) btnStart.classList.add('active');
+        if (btnStart) {
+            btnStart.classList.add('active');
+            btnStart.disabled = true;
+        }
         if (btnStop) btnStop.disabled = false;
         if (statusText) statusText.textContent = 'RUNNING';
         if (statusInd) statusInd.classList.add('active');
 
-        fetch(this._apiUrl(`/api/speed?val=${this.speed}`));
-        this.loop = setInterval(() => this._tick(), 500);
+        fetch(this._apiUrl(`/api/speed?val=${this.speed || 5}`));
+        if (!this.loop) {
+            this.loop = setInterval(() => this._tick(), 500);
+        }
     }
 
     stop() {
@@ -364,13 +369,15 @@ class Dashboard {
         const statusText = document.getElementById('status-text');
         const statusInd = document.getElementById('status-indicator');
 
-        if (btnStart) btnStart.classList.remove('active');
+        if (btnStart) {
+            btnStart.classList.remove('active');
+            btnStart.disabled = false;
+        }
         if (btnStop) btnStop.disabled = true;
         if (statusText) statusText.textContent = 'PAUSED';
         if (statusInd) statusInd.classList.remove('active');
 
         fetch(this._apiUrl(`/api/speed?val=0`));
-        clearInterval(this.loop);
     }
 
     async _tick() {
