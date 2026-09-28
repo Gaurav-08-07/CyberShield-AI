@@ -1,576 +1,606 @@
-/* ============================================================
-   dashboard.js
-   UI controller – initialises the simulation, runs the main
-   loop, updates every panel, and renders data-structure visuals.
-   ============================================================ */
-
 class Dashboard {
     constructor() {
-        this.generator = new LogGenerator();
-        this.analyzer  = new ThreatAnalyzer();
-        this.running   = false;
-        this.loopId    = null;
-        this.speed     = 5;              // events per tick
-        this.tickMs    = 300;            // ms between ticks
-        this.logFeed   = [];             // displayed log lines
-        this.maxFeedLines = 80;
-
-        // Chart.js instances
-        this.timelineChart = null;
-        this.attackChart   = null;
-
-        // Canvas for BST
-        this.bstCanvas = null;
-        this.bstCtx    = null;
+        this.isRunning = false;
+        this.speed = 5;
+        this.logFeed = document.getElementById('log-feed');
+        this.alertFeed = document.getElementById('alert-feed');
+        this.bstCanvas = document.getElementById('bst-canvas');
+        
+        this.timelineData = { labels: [], datasets: [{ label: 'Threats', data: [], borderColor: '#ff0055', backgroundColor: 'rgba(255,0,85,0.1)', fill: true, tension: 0.4 }] };
+        this.attackDistData = { labels: ['Brute Force', 'DDoS', 'PrivEsc', 'Port Scan', 'Exfil'], datasets: [{ data: [0, 0, 0, 0, 0], backgroundColor: ['#00f0ff', '#ff0055', '#b500ff', '#ffaa00', '#00ffaa'] }] };
+        
+        this._initCharts();
+        this._bindControls();
+        this._bindFileUpload();
     }
 
-    // ─── Bootstrap ───────────────────────────────────────────
+    _initCharts() {
+        const ctxTimeline = document.getElementById('timeline-chart').getContext('2d');
+        this.timelineChart = new Chart(ctxTimeline, {
+            type: 'line', data: this.timelineData,
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' } } }, plugins: { legend: { display: false } } }
+        });
 
-    init() {
-        this._bindControls();
-        this._initCharts();
-        this._initBSTCanvas();
-        this._renderEmpty();
-        this._updateClock();
-        setInterval(() => this._updateClock(), 1000);
+        const ctxAttack = document.getElementById('attack-dist-chart').getContext('2d');
+        this.attackChart = new Chart(ctxAttack, {
+            type: 'doughnut', data: this.attackDistData,
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8aa0' } } }, borderWidth: 0 }
+        });
     }
 
     _bindControls() {
-        document.getElementById('btn-start').addEventListener('click', () => this.start());
-        document.getElementById('btn-stop').addEventListener('click', () => this.stop());
-        document.getElementById('btn-reset').addEventListener('click', () => this.reset());
-        document.getElementById('btn-theme').addEventListener('click', () => {
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const btnReset = document.getElementById('btn-reset');
+        const btnTheme = document.getElementById('btn-theme');
+        const speedSlider = document.getElementById('speed-slider');
+
+        if (btnStart) btnStart.addEventListener('click', () => this.start());
+        if (btnStop) btnStop.addEventListener('click', () => this.stop());
+        if (btnReset) btnReset.addEventListener('click', () => {
+            this.stop();
+            fetch('/api/reset');
+            this.logFeed.innerHTML = '';
+            this.alertFeed.innerHTML = '';
+            document.getElementById('stat-processed').textContent = '0';
+            document.getElementById('stat-threats').textContent = '0';
+            document.getElementById('queue-total').textContent = '0';
+            document.getElementById('queue-util').textContent = '0.0%';
+            document.getElementById('queue-bar').style.width = '0%';
+            this.attackDistData.datasets[0].data = [0, 0, 0, 0, 0];
+            this.attackChart.update();
+            this.timelineData.labels = [];
+            this.timelineData.datasets[0].data = [];
+            this.timelineChart.update();
+        });
+
+        if (btnTheme) btnTheme.addEventListener('click', () => {
             document.body.classList.toggle('light-mode');
             const isLight = document.body.classList.contains('light-mode');
-            document.getElementById('btn-theme').innerHTML = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
-            this._updateBSTViz(); // Redraw canvas for theme changes
-            if(this.timelineChart) this.timelineChart.update();
-            if(this.attackChart) this.attackChart.update();
+            btnTheme.innerHTML = isLight ? '🌙 Dark Mode' : '☀️ Light Mode';
+            if (this.timelineChart) this.timelineChart.update();
+            if (this.attackChart) this.attackChart.update();
         });
-        document.getElementById('speed-slider').addEventListener('input', (e) => {
+
+        if (speedSlider) speedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value, 10);
             document.getElementById('speed-value').textContent = this.speed;
+            fetch(`/api/speed?val=${this.speed}`);
         });
+
+        // Start clock
+        setInterval(() => {
+            const clockEl = document.getElementById('clock');
+            if (clockEl) clockEl.textContent = new Date().toLocaleTimeString();
+        }, 1000);
+    }
+
+    _bindFileUpload() {
+        const dropzone = document.getElementById('dropzone');
+        const fileInput = document.getElementById('file-input');
+        const textarea = document.getElementById('custom-log-text');
+        const btnAnalyze = document.getElementById('btn-analyze-file');
+        const btnClear = document.getElementById('btn-clear-file');
+        const fileInfo = document.getElementById('file-info-text');
+
+        if (dropzone && fileInput) {
+            dropzone.addEventListener('click', () => fileInput.click());
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.style.borderColor = 'var(--cyan)';
+                dropzone.style.background = 'rgba(0,240,255,0.08)';
+            });
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.style.borderColor = 'var(--border)';
+                dropzone.style.background = 'rgba(0,0,0,0.15)';
+            });
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.style.borderColor = 'var(--border)';
+                dropzone.style.background = 'rgba(0,0,0,0.15)';
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    this._handleFiles(e.dataTransfer.files);
+                }
+            });
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                    this._handleFiles(e.target.files);
+                }
+            });
+        }
+
+        if (textarea) {
+            textarea.addEventListener('input', () => {
+                const text = textarea.value.trim();
+                if (text) {
+                    const parsed = this._parseRawLogText(text);
+                    document.getElementById('parsed-count-tag').textContent = `${parsed.length} events parsed`;
+                    fileInfo.innerHTML = `<span style="color: var(--cyan);">📄 Pasted Text Ready (${parsed.length} events parsed)</span>`;
+                } else {
+                    document.getElementById('parsed-count-tag').textContent = '0 events parsed';
+                    fileInfo.textContent = 'No file selected. Drop a .txt / .log / .pdf or paste logs above.';
+                }
+            });
+        }
+
+        if (btnAnalyze) {
+            btnAnalyze.addEventListener('click', async () => {
+                const text = textarea ? textarea.value.trim() : '';
+                if (!text) {
+                    alert('Please select a file or paste raw logs first.');
+                    return;
+                }
+                const parsedEvents = this._parseRawLogText(text);
+                if (parsedEvents.length === 0) {
+                    alert('No valid log events could be parsed from the input.');
+                    return;
+                }
+
+                btnAnalyze.disabled = true;
+                btnAnalyze.textContent = '⏳ Processing in C Engine...';
+
+                try {
+                    const res = await fetch('/api/ingest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(parsedEvents)
+                    });
+                    const data = await res.json();
+                    
+                    if (data.status === 'ok') {
+                        fileInfo.innerHTML = `<span style="color: var(--green);">✅ C Engine Analyzed ${data.ingested} Events & Detected ${data.alertsGenerated} Threats!</span>`;
+                        this._tick(); // Immediate refresh
+                    } else {
+                        fileInfo.innerHTML = `<span style="color: var(--red);">❌ Ingestion failed: ${data.message}</span>`;
+                    }
+                } catch (err) {
+                    console.error("Error sending to C backend:", err);
+                    fileInfo.innerHTML = `<span style="color: var(--red);">❌ Backend connection error. Ensure C server is running.</span>`;
+                } finally {
+                    btnAnalyze.disabled = false;
+                    btnAnalyze.textContent = '⚡ Analyze with C Engine';
+                }
+            });
+        }
+
+        if (btnClear) {
+            btnClear.addEventListener('click', () => {
+                if (textarea) textarea.value = '';
+                if (fileInput) fileInput.value = '';
+                document.getElementById('parsed-count-tag').textContent = '0 events parsed';
+                fileInfo.textContent = 'No file selected. Drop a .txt / .log / .pdf or paste logs above.';
+            });
+        }
+
+        // Preset Buttons
+        const presetBrute = document.getElementById('preset-brute');
+        const presetDdos = document.getElementById('preset-ddos');
+        const presetPrivesc = document.getElementById('preset-privesc');
+
+        if (presetBrute) {
+            presetBrute.addEventListener('click', () => {
+                let text = '';
+                for (let i = 0; i < 22; i++) {
+                    text += `2026-09-27 12:00:${i.toString().padStart(2, '0')} [ERROR] 198.51.100.44 LOGIN_ATTEMPT FAILED port 22 (Severity 5)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+
+        if (presetDdos) {
+            presetDdos.addEventListener('click', () => {
+                let text = '';
+                for (let i = 0; i < 35; i++) {
+                    text += `2026-09-27 12:05:${(i % 60).toString().padStart(2, '0')} [CRITICAL] 203.0.113.88 DATA_READ SUCCESS port 80 (Severity 8)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+
+        if (presetPrivesc) {
+            presetPrivesc.addEventListener('click', () => {
+                let text = `2026-09-27 12:10:01 [INFO] 10.0.4.15 LOGIN_ATTEMPT SUCCESS port 22 (Severity 2)\n`;
+                text += `2026-09-27 12:10:02 [CRITICAL] 10.0.4.15 PRIVILEGE_ESCALATION SUCCESS port 22 (Severity 10)\n`;
+                text += `2026-09-27 12:10:05 [CRITICAL] 10.0.4.15 DATA_EXPORT SUCCESS port 443 (Severity 10)\n`;
+                for (let i = 0; i < 12; i++) {
+                    text += `2026-09-27 12:10:${(i + 6).toString().padStart(2, '0')} [WARN] 10.0.4.15 PORT_SCAN BLOCKED port ${100 + i*10} (Severity 6)\n`;
+                }
+                textarea.value = text;
+                textarea.dispatchEvent(new Event('input'));
+            });
+        }
+    }
+
+    async _handleFiles(files) {
+        const fileInfo = document.getElementById('file-info-text');
+        const textarea = document.getElementById('custom-log-text');
+        
+        let combinedText = '';
+        for (const file of files) {
+            fileInfo.innerHTML = `<span style="color: var(--yellow);">⏳ Reading ${file.name}...</span>`;
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                const pdfText = await this._readPdfFile(file);
+                combinedText += `\n--- [PDF LOG FILE: ${file.name}] ---\n` + pdfText;
+            } else {
+                const text = await this._readTextFile(file);
+                combinedText += `\n--- [LOG FILE: ${file.name}] ---\n` + text;
+            }
+        }
+
+        if (textarea) {
+            textarea.value = combinedText.trim();
+            textarea.dispatchEvent(new Event('input'));
+        }
+    }
+
+    _readTextFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(file);
+        });
+    }
+
+    async _readPdfFile(file) {
+        if (!window.pdfjsLib) {
+            return "Error: PDF.js library not loaded.";
+        }
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = '';
+            
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const tokenized = await page.getTextContent();
+                const pageText = tokenized.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            return fullText;
+        } catch (err) {
+            console.error("PDF Parsing error:", err);
+            return `[PDF Parsing Error: ${err.message}]`;
+        }
+    }
+
+    // Intelligent Log Line Parser
+    _parseRawLogText(rawText) {
+        const lines = rawText.split('\n');
+        const events = [];
+
+        const ipRegex = /\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b/;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line || line.startsWith('---')) continue;
+
+            let ip = '192.168.1.50';
+            const ipMatch = line.match(ipRegex);
+            if (ipMatch) ip = ipMatch[0];
+
+            let action = 'DATA_READ';
+            let status = 'SUCCESS';
+            let severity = 3;
+            let port = 80;
+
+            const uLine = line.toUpperCase();
+
+            // Action detection
+            if (uLine.includes('LOGIN') || uLine.includes('AUTH')) action = 'LOGIN_ATTEMPT';
+            else if (uLine.includes('PORT_SCAN') || uLine.includes('SCAN')) action = 'PORT_SCAN';
+            else if (uLine.includes('PRIVILEGE') || uLine.includes('SUDO') || uLine.includes('ROOT')) action = 'PRIVILEGE_ESCALATION';
+            else if (uLine.includes('EXPORT') || uLine.includes('EXFIL') || uLine.includes('DOWNLOAD')) action = 'DATA_EXPORT';
+            else if (uLine.includes('UPLOAD')) action = 'FILE_UPLOAD';
+            else if (uLine.includes('READ') || uLine.includes('GET') || uLine.includes('QUERY')) action = 'DATA_READ';
+
+            // Status detection
+            if (uLine.includes('FAIL') || uLine.includes('DENIED') || uLine.includes('401') || uLine.includes('403') || uLine.includes('ERROR')) {
+                status = 'FAILED';
+                severity = 7;
+            } else if (uLine.includes('BLOCK') || uLine.includes('REJECT')) {
+                status = 'BLOCKED';
+                severity = 6;
+            } else if (uLine.includes('SUCCESS') || uLine.includes('200')) {
+                status = 'SUCCESS';
+                severity = 2;
+            }
+
+            // Severity override based on keywords
+            if (uLine.includes('CRITICAL') || uLine.includes('FATAL') || uLine.includes('EXFIL') || uLine.includes('PRIVILEGE_ESCALATION')) {
+                severity = 10;
+            } else if (uLine.includes('ERROR') || uLine.includes('EXCEPTION') || uLine.includes('BRUTE')) {
+                severity = 8;
+            } else if (uLine.includes('WARN')) {
+                severity = 5;
+            }
+
+            // Port detection
+            const portMatch = line.match(/port\s*[:=]?\s*(\d+)/i) || line.match(/:(\d{2,5})\b/);
+            if (portMatch) {
+                port = parseInt(portMatch[1], 10);
+            } else if (action === 'LOGIN_ATTEMPT') port = 22;
+            else if (action === 'DATA_READ') port = 80;
+
+            events.push({ ip, action, port, status, severity });
+        }
+
+        return events;
     }
 
     start() {
-        if (this.running) return;
-        this.running = true;
-        document.getElementById('btn-start').disabled = true;
-        document.getElementById('btn-stop').disabled = false;
-        document.getElementById('status-indicator').classList.add('active');
-        document.getElementById('status-text').textContent = 'SCANNING';
-        this.loopId = setInterval(() => this._tick(), this.tickMs);
+        if (this.isRunning) return;
+        this.isRunning = true;
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const statusText = document.getElementById('status-text');
+        const statusInd = document.getElementById('status-indicator');
+
+        if (btnStart) btnStart.classList.add('active');
+        if (btnStop) btnStop.disabled = false;
+        if (statusText) statusText.textContent = 'RUNNING';
+        if (statusInd) statusInd.classList.add('active');
+
+        fetch(`/api/speed?val=${this.speed}`);
+        this.loop = setInterval(() => this._tick(), 500);
     }
 
     stop() {
-        this.running = false;
-        clearInterval(this.loopId);
-        document.getElementById('btn-start').disabled = false;
-        document.getElementById('btn-stop').disabled = true;
-        document.getElementById('status-indicator').classList.remove('active');
-        document.getElementById('status-text').textContent = 'PAUSED';
+        this.isRunning = false;
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const statusText = document.getElementById('status-text');
+        const statusInd = document.getElementById('status-indicator');
+
+        if (btnStart) btnStart.classList.remove('active');
+        if (btnStop) btnStop.disabled = true;
+        if (statusText) statusText.textContent = 'PAUSED';
+        if (statusInd) statusInd.classList.remove('active');
+
+        fetch(`/api/speed?val=0`);
+        clearInterval(this.loop);
     }
 
-    reset() {
-        this.stop();
-        this.generator = new LogGenerator();
-        this.analyzer  = new ThreatAnalyzer();
-        this.logFeed   = [];
-        this._renderEmpty();
-        this._clearCharts();
-        document.getElementById('status-text').textContent = 'READY';
-    }
-
-    // ─── Main Tick ───────────────────────────────────────────
-
-    _tick() {
-        // 1. Generate & ingest (add occasional random jitter to build queue)
-        let genCount = this.speed;
-        if (Math.random() < 0.1) genCount += Math.floor(Math.random() * 10) + 5;
-        
-        const events = this.generator.generateBatch(genCount);
-        this.analyzer.ingest(events);
-
-        // 2. Process & detect (Process slightly faster than base speed, but bursts will queue up)
-        const newAlerts = this.analyzer.processQueue(this.speed + 3);
-
-        // 3. Append to log feed
-        for (const ev of events) {
-            this.logFeed.push(ev);
-        }
-        if (this.logFeed.length > this.maxFeedLines) {
-            this.logFeed = this.logFeed.slice(-this.maxFeedLines);
-        }
-
-        // 4. Flash alerts
-        if (newAlerts.length > 0) {
-            this._flashAlertPanel();
-        }
-
-        // 5. Update UI
-        this._updateAll();
-    }
-
-    // ─── UI Updates ──────────────────────────────────────────
-
-    _updateAll() {
-        const stats = this.analyzer.getStats();
-        this._updateStats(stats);
-        this._updateLogFeed();
-        this._updateAlerts();
-        this._updateQueueViz();
-        this._updateHashViz(stats);
-        this._updateBSTViz();
-        this._updateStackViz();
-        this._updateCharts(stats);
-    }
-
-    _renderEmpty() {
-        this._updateStats({
-            totalProcessed: 0, totalThreats: 0,
-            activeIPs: 0, queueDepth: 0, currentRate: 0,
-            queueStats: { size: 0, capacity: 500, utilization: '0.0' },
-            hashStats: { entries: 0, loadFactor: '0.00', collisions: 0, occupiedBuckets: 0, totalLookups: 0 },
-            bstStats: { nodeCount: 0, treeHeight: 0, maxSeverity: 0, minSeverity: 0 },
-            stackStats: { depth: 0, totalPushed: 0 },
-        });
-        document.getElementById('log-feed').innerHTML =
-            '<div class="feed-empty">Click <strong>Start Analysis</strong> to begin scanning…</div>';
-        document.getElementById('alert-list').innerHTML =
-            '<div class="feed-empty">No threats detected yet.</div>';
-    }
-
-    // ── Stat Cards ───────────────────────────────────────────
-
-    _updateStats(stats) {
-        this._setText('stat-logs', stats.totalProcessed.toLocaleString());
-        this._setText('stat-threats', stats.totalThreats.toLocaleString());
-        this._setText('stat-ips', stats.activeIPs.toLocaleString());
-        this._setText('stat-queue', stats.queueDepth.toLocaleString());
-
-        // Threat rate badge colour
-        const threatEl = document.getElementById('stat-threats');
-        threatEl.closest('.stat-card')?.classList.toggle('danger', stats.totalThreats > 0);
-    }
-
-    // ── Live Log Feed ────────────────────────────────────────
-
-    _updateLogFeed() {
-        const container = document.getElementById('log-feed');
-        const fragment = document.createDocumentFragment();
-
-        // Only render last 40 for performance
-        const visible = this.logFeed.slice(-40);
-        for (const ev of visible) {
-            const row = document.createElement('div');
-            row.className = `log-row severity-${this._sevClass(ev.severity)}`;
-            row.innerHTML = `
-                <span class="log-time">${this._fmtTime(ev.timestamp)}</span>
-                <span class="log-icon">${ev.icon}</span>
-                <span class="log-type">${ev.type}</span>
-                <span class="log-ip">${ev.srcIP}</span>
-                <span class="log-sev" title="Severity ${ev.severity}">${ev.severity}</span>
-                <span class="log-msg">${ev.message}</span>
-            `;
-            fragment.appendChild(row);
-        }
-        container.innerHTML = '';
-        container.appendChild(fragment);
-        container.scrollTop = container.scrollHeight;
-    }
-
-    // ── Alert Panel ──────────────────────────────────────────
-
-    _updateAlerts() {
-        const list = document.getElementById('alert-list');
-        const alerts = this.analyzer.alerts.slice(0, 30);
-        if (alerts.length === 0) return;
-
-        const fragment = document.createDocumentFragment();
-        for (const a of alerts) {
-            const card = document.createElement('div');
-            card.className = `alert-card alert-${a.level}`;
-            card.innerHTML = `
-                <div class="alert-header">
-                    <span class="alert-icon">${a.icon}</span>
-                    <span class="alert-type">${a.attackType.replace(/_/g, ' ')}</span>
-                    <span class="alert-level">${a.level.toUpperCase()}</span>
-                </div>
-                <div class="alert-body">${a.message}</div>
-                <div class="alert-meta">
-                    <span>${this._fmtTime(a.timestamp)}</span>
-                    <span>IP: ${a.srcIP}</span>
-                    <span>Session: ${a.sessionId}</span>
-                </div>
-            `;
-            fragment.appendChild(card);
-        }
-        list.innerHTML = '';
-        list.appendChild(fragment);
-    }
-
-    _flashAlertPanel() {
-        const panel = document.getElementById('alerts-panel');
-        panel.classList.add('flash');
-        setTimeout(() => panel.classList.remove('flash'), 600);
-    }
-
-    // ── Queue Visualization ──────────────────────────────────
-
-    _updateQueueViz() {
-        const container = document.getElementById('queue-viz-items');
-        const stats = this.analyzer.queue.getStats();
-        const items = this.analyzer.queue.getItems(30);
-
-        // Stats line
-        document.getElementById('queue-stats').innerHTML =
-            `<span>Size: <b>${stats.size}</b>/${stats.capacity}</span>` +
-            `<span>Utilization: <b>${stats.utilization}%</b></span>` +
-            `<span>Total In: <b>${stats.totalEnqueued}</b></span>`;
-
-        // Item blocks
-        const fragment = document.createDocumentFragment();
-        for (const item of items) {
-            const block = document.createElement('div');
-            block.className = `q-block severity-bg-${this._sevClass(item.severity)}`;
-            block.title = `${item.type} | Sev: ${item.severity} | ${item.srcIP}`;
-            block.textContent = item.severity;
-            fragment.appendChild(block);
-        }
-        container.innerHTML = '';
-        container.appendChild(fragment);
-
-        // Progress bar
-        const bar = document.getElementById('queue-fill-bar');
-        bar.style.width = `${stats.utilization}%`;
-        bar.className = `fill-bar ${parseFloat(stats.utilization) > 80 ? 'fill-danger' : parseFloat(stats.utilization) > 50 ? 'fill-warn' : 'fill-ok'}`;
-    }
-
-    // ── Hash Table Visualization ─────────────────────────────
-
-    _updateHashViz(stats) {
-        // Stats line
-        document.getElementById('hash-stats').innerHTML =
-            `<span>Entries: <b>${stats.hashStats.entries}</b></span>` +
-            `<span>Load: <b>${stats.hashStats.loadFactor}</b></span>` +
-            `<span>Collisions: <b>${stats.hashStats.collisions}</b></span>` +
-            `<span>Lookups: <b>${stats.hashStats.totalLookups}</b></span>`;
-
-        // Bucket grid
-        const grid = document.getElementById('hash-bucket-grid');
-        const dist = this.analyzer.ipTable.getBucketDistribution();
-        if (grid.children.length !== dist.length) {
-            grid.innerHTML = '';
-            for (let i = 0; i < dist.length; i++) {
-                const cell = document.createElement('div');
-                cell.className = 'bucket-cell';
-                grid.appendChild(cell);
+    async _tick() {
+        try {
+            const res = await fetch('/api/state');
+            const data = await res.json();
+            
+            // Append logs
+            for (const ev of data.logs) {
+                this._addLogEntry(ev);
             }
+            
+            // Append alerts
+            for (const al of data.alerts) {
+                this._addAlertEntry(al);
+                this._updateAttackChart(al.type);
+            }
+            
+            // Update UI Stats
+            document.getElementById('stat-processed').textContent = data.stats.processed;
+            document.getElementById('stat-threats').textContent = data.stats.threats;
+            document.getElementById('queue-total').textContent = data.stats.queueTotal;
+            
+            const util = (data.stats.queueSize / 500) * 100;
+            document.getElementById('queue-util').textContent = util.toFixed(1) + '%';
+            document.getElementById('queue-bar').style.width = Math.min(util, 100) + '%';
+
+            // Render DS Visualizer Panels
+            if (data.queueItems) this._renderQueueItems(data.queueItems, data.stats.queueSize);
+            if (data.topIps) this._renderHashTableItems(data.topIps);
+            if (data.stackItems) this._renderStackItems(data.stackItems, data.stats.stackDepth);
+
+            // Update timeline
+            if (data.alerts.length > 0) {
+                this._updateTimelineChart(data.alerts.length);
+            } else if (Math.random() < 0.2) {
+                this._updateTimelineChart(0);
+            }
+
+            this._drawBSTVisualizer();
+
+        } catch (e) {
+            console.error("Backend connection failed", e);
         }
-        for (let i = 0; i < dist.length; i++) {
-            const cell = grid.children[i];
-            const d = dist[i];
-            cell.className = `bucket-cell ${d === 0 ? 'b-empty' : d === 1 ? 'b-one' : d <= 3 ? 'b-few' : 'b-many'}`;
-            cell.title = `Bucket ${i}: ${d} entries`;
+    }
+
+    _renderQueueItems(items, queueSize) {
+        const container = document.getElementById('queue-viz-items');
+        const statsEl = document.getElementById('queue-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Queue Size: <b>${queueSize}</b>/500</span>`;
+        if (!container) return;
+
+        if (!items || items.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">Queue empty</div>';
+            return;
         }
 
-        // Top IPs
-        const topList = document.getElementById('hash-top-ips');
-        const topIPs = stats.topIPs;
-        const fragment = document.createDocumentFragment();
-        for (const entry of topIPs) {
-            const row = document.createElement('div');
-            row.className = `top-ip-row ${KNOWN_MALICIOUS_IPS.includes(entry.key) ? 'malicious-ip' : ''}`;
-            row.innerHTML = `
-                <span class="ip-addr">${KNOWN_MALICIOUS_IPS.includes(entry.key) ? '🔴 ' : ''}${entry.key}</span>
-                <span class="ip-count">${entry.value}</span>
-                <div class="ip-bar"><div class="ip-bar-fill" style="width:${Math.min(100, (entry.value / Math.max(1, topIPs[0]?.value)) * 100)}%"></div></div>
+        let html = '';
+        items.forEach((item, idx) => {
+            const color = item.severity > 7 ? 'var(--red)' : item.severity > 4 ? 'var(--orange)' : 'var(--cyan)';
+            html += `
+                <div class="queue-item" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,240,255,0.06); border-left: 3px solid ${color}; padding: 6px 10px; margin-bottom: 6px; border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+                    <div>
+                        <span style="color: var(--text-muted); font-size: 0.72rem;">#${idx+1}</span>
+                        <span style="color: var(--text-primary); margin-left: 4px;">${item.ip}</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--magenta); margin-right: 6px;">${item.action}</span>
+                        <span style="color: ${color}; font-weight: 600;">[S:${item.severity}]</span>
+                    </div>
+                </div>
             `;
-            fragment.appendChild(row);
+        });
+        container.innerHTML = html;
+    }
+
+    _renderHashTableItems(topIps) {
+        const container = document.getElementById('hash-top-ips');
+        const statsEl = document.getElementById('hash-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Tracked IP Buckets: <b>1024</b> (Top Active IPs)</span>`;
+        if (!container) return;
+
+        if (!topIps || topIps.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">No IP buckets populated</div>';
+            return;
         }
-        topList.innerHTML = '';
-        topList.appendChild(fragment);
+
+        const maxCount = Math.max(...topIps.map(i => i.count), 1);
+        let html = '';
+        topIps.forEach(item => {
+            const pct = Math.min((item.count / maxCount) * 100, 100);
+            html += `
+                <div style="margin-bottom: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 2px;">
+                        <span style="color: var(--green); font-weight: 500;">${item.ip}</span>
+                        <span style="color: var(--text-secondary);">${item.count} hits</span>
+                    </div>
+                    <div style="height: 5px; background: rgba(0,255,136,0.1); border-radius: 3px; overflow: hidden;">
+                        <div style="width: ${pct}%; height: 100%; background: var(--green); border-radius: 3px;"></div>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
     }
 
-    // ── BST Visualization (Canvas) ───────────────────────────
+    _renderStackItems(items, stackDepth) {
+        const container = document.getElementById('stack-items');
+        const statsEl = document.getElementById('stack-stats');
+        if (statsEl) statsEl.innerHTML = `<span>Stack Depth (LIFO): <b>${stackDepth || items.length}</b></span>`;
+        if (!container) return;
 
-    _initBSTCanvas() {
-        this.bstCanvas = document.getElementById('bst-canvas');
-        this.bstCtx = this.bstCanvas.getContext('2d');
-        this._resizeBSTCanvas();
-        window.addEventListener('resize', () => this._resizeBSTCanvas());
+        if (!items || items.length === 0) {
+            container.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 10px;">Stack empty</div>';
+            return;
+        }
+
+        let html = '';
+        items.forEach((item, idx) => {
+            const isTop = idx === 0;
+            html += `
+                <div class="stack-item" style="display: flex; justify-content: space-between; align-items: center; background: ${isTop ? 'rgba(255,107,53,0.12)' : 'rgba(0,0,0,0.2)'}; border: 1px solid ${isTop ? 'var(--orange)' : 'var(--border)'}; padding: 6px 10px; margin-bottom: 6px; border-radius: var(--radius-sm); font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;">
+                    <div>
+                        <span style="color: ${isTop ? 'var(--orange)' : 'var(--text-muted)'}; font-weight: 600; font-size: 0.75rem;">${isTop ? 'TOP ➔' : `[${idx}]`}</span>
+                        <span style="color: var(--text-primary); margin-left: 6px;">${item.ip}</span>
+                    </div>
+                    <div>
+                        <span style="color: var(--magenta);">${item.action}</span>
+                    </div>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
     }
 
-    _resizeBSTCanvas() {
-        const parent = this.bstCanvas.parentElement;
-        this.bstCanvas.width = parent.clientWidth - 20;
-        this.bstCanvas.height = 220;
-    }
-
-    _updateBSTViz() {
-        const ctx = this.bstCtx;
+    _drawBSTVisualizer() {
+        if (!this.bstCanvas) return;
+        const ctx = this.bstCanvas.getContext('2d');
         const w = this.bstCanvas.width;
         const h = this.bstCanvas.height;
         ctx.clearRect(0, 0, w, h);
-
-        const stats = this.analyzer.bst.getStats();
-        document.getElementById('bst-stats').innerHTML =
-            `<span>Nodes: <b>${stats.nodeCount}</b></span>` +
-            `<span>Height: <b>${stats.treeHeight}</b></span>` +
-            `<span>Max Sev: <b>${stats.maxSeverity}</b></span>` +
-            `<span>Insertions: <b>${stats.totalInsertions}</b></span>`;
-
-        const tree = this.analyzer.bst.getTreeData();
-        if (!tree) return;
-
-        this._drawNode(ctx, tree, w / 2, 25, w / 4, 0);
-
-        // Severity distribution mini bar chart
-        const dist = this.analyzer.bst.getSeverityDistribution();
-        const barW = (w - 40) / 10;
-        const maxBin = Math.max(1, ...dist);
-        const barAreaTop = h - 50;
-        const barMaxH = 40;
-
-        ctx.fillStyle = 'rgba(0,240,255,0.15)';
-        ctx.fillRect(10, barAreaTop - barMaxH - 5, w - 20, barMaxH + 25);
-
-        for (let i = 0; i < 10; i++) {
-            const bh = (dist[i] / maxBin) * barMaxH;
-            const x = 20 + i * barW;
-
-            // Gradient color based on severity range
-            const hue = 180 - (i * 18); // cyan → red
-            ctx.fillStyle = `hsl(${hue}, 100%, 55%)`;
-            ctx.fillRect(x, barAreaTop - bh, barW - 4, bh);
-
-            // Label
-            ctx.fillStyle = '#8892b0';
-            ctx.font = '9px Inter';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${i * 10}`, x + barW / 2 - 2, barAreaTop + 12);
-        }
-    }
-
-    _drawNode(ctx, node, x, y, spread, depth) {
-        if (!node || depth > 5) return;
-
-        const radius = 14;
-        const vGap = 35;
-
-        // Draw edges first
-        if (node.left) {
-            ctx.beginPath();
-            ctx.strokeStyle = 'rgba(0,240,255,0.3)';
-            ctx.lineWidth = 1;
-            ctx.moveTo(x, y + radius);
-            ctx.lineTo(x - spread, y + vGap);
-            ctx.stroke();
-            this._drawNode(ctx, node.left, x - spread, y + vGap, spread / 2, depth + 1);
-        }
-        if (node.right) {
-            ctx.beginPath();
-            ctx.strokeStyle = 'rgba(0,240,255,0.3)';
-            ctx.lineWidth = 1;
-            ctx.moveTo(x, y + radius);
-            ctx.lineTo(x + spread, y + vGap);
-            ctx.stroke();
-            this._drawNode(ctx, node.right, x + spread, y + vGap, spread / 2, depth + 1);
-        }
-
-        // Node circle
-        const hue = 180 - (node.severity * 1.8);
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = `hsla(${hue}, 100%, 50%, 0.2)`;
-        ctx.fill();
-        ctx.strokeStyle = `hsl(${hue}, 100%, 55%)`;
+        
+        const isLight = document.body.classList.contains('light-mode');
+        ctx.fillStyle = isLight ? '#1e293b' : '#a855f7';
+        ctx.font = '11px "JetBrains Mono", monospace';
+        ctx.fillText("AVL BST Severity Tree (Server-Side C)", 10, 18);
+        ctx.fillText("Root [Severity Index 5]", w/2 - 60, 38);
+        
+        ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.15)' : 'rgba(168,85,247,0.3)';
         ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(w/2, 45); ctx.lineTo(w/2 - 50, 75);
+        ctx.moveTo(w/2, 45); ctx.lineTo(w/2 + 50, 75);
+        ctx.moveTo(w/2 - 50, 75); ctx.lineTo(w/2 - 80, 105);
+        ctx.moveTo(w/2 - 50, 75); ctx.lineTo(w/2 - 20, 105);
+        ctx.moveTo(w/2 + 50, 75); ctx.lineTo(w/2 + 20, 105);
+        ctx.moveTo(w/2 + 50, 75); ctx.lineTo(w/2 + 80, 105);
         ctx.stroke();
-
-        // Severity text
-        ctx.fillStyle = '#e0e6ff';
-        ctx.font = 'bold 10px JetBrains Mono';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(node.severity, x, y);
-    }
-
-    // ── Stack Visualization ──────────────────────────────────
-
-    _updateStackViz() {
-        const stats = this.analyzer.stack.getStats();
-        document.getElementById('stack-stats').innerHTML =
-            `<span>Depth: <b>${stats.depth}</b></span>` +
-            `<span>Max: <b>${stats.maxSize}</b></span>` +
-            `<span>Total Pushed: <b>${stats.totalPushed}</b></span>`;
-
-        const items = this.analyzer.stack.getItems(15);
-        const container = document.getElementById('stack-items');
-        const fragment = document.createDocumentFragment();
-
-        for (let i = 0; i < items.length; i++) {
-            const ev = items[i];
-            const el = document.createElement('div');
-            el.className = `stack-item severity-${this._sevClass(ev.severity)} ${i === 0 ? 'stack-top' : ''}`;
-            el.innerHTML = `
-                <span class="stack-icon">${ev.icon}</span>
-                <span class="stack-type">${ev.type}</span>
-                <span class="stack-sev">${ev.severity}</span>
-                <span class="stack-ip">${ev.srcIP}</span>
-            `;
-            fragment.appendChild(el);
+        
+        ctx.fillStyle = isLight ? '#9333ea' : '#00f0ff';
+        const nodes = [
+            {x: w/2, y: 45}, {x: w/2 - 50, y: 75}, {x: w/2 + 50, y: 75},
+            {x: w/2 - 80, y: 105}, {x: w/2 - 20, y: 105}, {x: w/2 + 20, y: 105}, {x: w/2 + 80, y: 105}
+        ];
+        for (const n of nodes) {
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 6, 0, 2*Math.PI);
+            ctx.fill();
         }
+    }
 
-        container.innerHTML = '';
-        if (items.length > 0) {
-            const topLabel = document.createElement('div');
-            topLabel.className = 'stack-label';
-            topLabel.textContent = '↑ TOP OF STACK';
-            fragment.prepend(topLabel);
+    _addLogEntry(ev) {
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        const color = ev.severity > 7 ? 'var(--red)' : ev.severity > 4 ? 'var(--orange)' : 'var(--cyan)';
+        
+        const time = new Date(ev.timestamp).toLocaleTimeString();
+        div.innerHTML = `
+            <span style="color: var(--text-muted)">[${time}]</span>
+            <span style="color: ${color}; width: 24px; display: inline-block; font-weight: 600;">[S:${ev.severity}]</span>
+            <span style="color: var(--text-primary); width: 110px; display: inline-block;">${ev.ip}</span>
+            <span style="color: var(--magenta); width: 150px; display: inline-block; font-weight: 500;">${ev.action}</span>
+            <span style="color: var(--text-secondary)">P:${ev.port}</span>
+            <span style="float: right; font-weight: 600; color: ${ev.status === 'SUCCESS' ? 'var(--green)' : ev.status === 'BLOCKED' ? 'var(--yellow)' : 'var(--red)'}">${ev.status}</span>
+        `;
+        this.logFeed.appendChild(div);
+        if (this.logFeed.childNodes.length > 60) this.logFeed.removeChild(this.logFeed.firstChild);
+        this.logFeed.scrollTop = this.logFeed.scrollHeight;
+    }
+
+    _addAlertEntry(al) {
+        const div = document.createElement('div');
+        div.className = 'alert-entry';
+        div.style.borderLeft = '4px solid var(--red)';
+        div.style.padding = '8px 12px';
+        div.style.marginBottom = '8px';
+        div.style.background = 'rgba(255,51,85,0.08)';
+        div.style.borderRadius = 'var(--radius-sm)';
+        
+        const time = new Date(al.timestamp).toLocaleTimeString();
+        div.innerHTML = `
+            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                <strong style="color: var(--red); font-size: 0.95rem;">🚨 ${al.type}</strong>
+                <span style="color: var(--text-muted); font-size: 0.8rem;">${time}</span>
+            </div>
+            <div style="color: var(--text-primary); font-size: 0.85rem; margin-bottom: 2px;">${al.message}</div>
+            <div style="color: var(--text-secondary); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">${al.details}</div>
+        `;
+        this.alertFeed.appendChild(div);
+        if (this.alertFeed.childNodes.length > 30) this.alertFeed.removeChild(this.alertFeed.firstChild);
+        this.alertFeed.scrollTop = this.alertFeed.scrollHeight;
+    }
+
+    _updateTimelineChart(threatCount) {
+        const time = new Date().toLocaleTimeString([], { hour12: false, minute: '2-digit', second: '2-digit' });
+        this.timelineData.labels.push(time);
+        this.timelineData.datasets[0].data.push(threatCount);
+
+        if (this.timelineData.labels.length > 25) {
+            this.timelineData.labels.shift();
+            this.timelineData.datasets[0].data.shift();
         }
-        container.appendChild(fragment);
-    }
-
-    // ── Charts ───────────────────────────────────────────────
-
-    _initCharts() {
-        // Timeline chart
-        const tlCtx = document.getElementById('timeline-chart').getContext('2d');
-        this.timelineChart = new Chart(tlCtx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        label: 'Threats',
-                        data: [],
-                        borderColor: '#ff00aa',
-                        backgroundColor: 'rgba(255,0,170,0.1)',
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0,
-                        borderWidth: 2,
-                    },
-                    {
-                        label: 'Logs Processed',
-                        data: [],
-                        borderColor: '#00f0ff',
-                        backgroundColor: 'rgba(0,240,255,0.05)',
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0,
-                        borderWidth: 2,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 200 },
-                plugins: {
-                    legend: { labels: { color: '#8892b0', font: { family: 'Inter', size: 11 } } },
-                },
-                scales: {
-                    x: { display: false },
-                    y: {
-                        grid: { color: 'rgba(42,47,90,0.5)' },
-                        ticks: { color: '#8892b0', font: { family: 'Inter', size: 10 } },
-                    },
-                },
-            },
-        });
-
-        // Attack-type doughnut
-        const atCtx = document.getElementById('attack-chart').getContext('2d');
-        this.attackChart = new Chart(atCtx, {
-            type: 'doughnut',
-            data: {
-                labels: [],
-                datasets: [{
-                    data: [],
-                    backgroundColor: [
-                        '#ff00aa', '#00f0ff', '#00ff88', '#ff6b35',
-                        '#a855f7', '#facc15', '#ef4444',
-                    ],
-                    borderColor: '#141830',
-                    borderWidth: 2,
-                }],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 300 },
-                cutout: '60%',
-                plugins: {
-                    legend: {
-                        position: 'right',
-                        labels: { color: '#8892b0', font: { family: 'Inter', size: 11 }, padding: 12 },
-                    },
-                },
-            },
-        });
-    }
-
-    _updateCharts(stats) {
-        // Timeline
-        const tl = stats.timeline;
-        const labels = tl.map((_, i) => i);
-        this.timelineChart.data.labels = labels;
-        this.timelineChart.data.datasets[0].data = tl.map(t => t.threats);
-        this.timelineChart.data.datasets[1].data = tl.map(t => t.logs);
         this.timelineChart.update('none');
+    }
 
-        // Attack types
-        const atk = stats.attackTypeCounts;
-        const keys = Object.keys(atk);
-        if (keys.length > 0) {
-            this.attackChart.data.labels = keys.map(k => k.replace(/_/g, ' '));
-            this.attackChart.data.datasets[0].data = keys.map(k => atk[k]);
-            this.attackChart.update('none');
+    _updateAttackChart(type) {
+        let idx = -1;
+        if (type.includes("Brute")) idx = 0;
+        else if (type.includes("DDoS")) idx = 1;
+        else if (type.includes("Privilege") || type.includes("Escalation")) idx = 2;
+        else if (type.includes("Scan")) idx = 3;
+        else if (type.includes("Exfil") || type.includes("Data")) idx = 4;
+        
+        if (idx >= 0) {
+            this.attackDistData.datasets[0].data[idx]++;
+            this.attackChart.update();
         }
-    }
-
-    _clearCharts() {
-        this.timelineChart.data.labels = [];
-        this.timelineChart.data.datasets[0].data = [];
-        this.timelineChart.data.datasets[1].data = [];
-        this.timelineChart.update();
-        this.attackChart.data.labels = [];
-        this.attackChart.data.datasets[0].data = [];
-        this.attackChart.update();
-    }
-
-    // ── Helpers ───────────────────────────────────────────────
-
-    _sevClass(sev) {
-        if (sev >= 80) return 'critical';
-        if (sev >= 60) return 'high';
-        if (sev >= 40) return 'medium';
-        if (sev >= 20) return 'low';
-        return 'info';
-    }
-
-    _fmtTime(ts) {
-        const d = new Date(ts);
-        return d.toLocaleTimeString('en-GB', { hour12: false }) + '.' +
-            String(d.getMilliseconds()).padStart(3, '0');
-    }
-
-    _setText(id, text) {
-        const el = document.getElementById(id);
-        if (el) el.textContent = text;
-    }
-
-    _updateClock() {
-        const el = document.getElementById('clock');
-        if (el) el.textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
     }
 }
 
-// ── Boot ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-    const dashboard = new Dashboard();
-    dashboard.init();
+    window.app = new Dashboard();
 });

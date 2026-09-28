@@ -3,13 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="AI-Based Cyber Threat Log Analyzer — Real-time threat detection using Stack, Queue, Hash Table, and BST data structures.">
+    <meta name="description" content="CyberShield-AI — Real-time Threat Log Analyzer powered by C backend data structures (Queue, Hash Table, BST, Stack).">
     <title>CyberShield-AI — Threat Log Analyzer</title>
 
     <!-- Styles -->
     <link rel="stylesheet" href="css/index.css">
+
     <!-- Chart.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+
+    <!-- PDF.js CDN for client-side PDF document parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
+    </script>
 </head>
 <body>
 
@@ -21,7 +30,7 @@
             <div class="logo-icon">🛡️</div>
             <div>
                 <div class="header-title">CyberShield-AI</div>
-                <div class="header-subtitle">Threat Log Analyzer &nbsp;·&nbsp; Stack · Queue · Hash Table · BST</div>
+                <div class="header-subtitle">Real-Time Threat Detection &nbsp;·&nbsp; Stack · Queue · Hash Table · BST</div>
             </div>
         </div>
 
@@ -37,11 +46,11 @@
             <button class="btn btn-theme" id="btn-theme">☀️ Light Mode</button>
             <div class="speed-control">
                 <label for="speed-slider">Speed</label>
-                <input type="range" id="speed-slider" min="1" max="20" value="5">
+                <input type="range" id="speed-slider" min="0" max="20" value="5">
                 <span class="speed-value" id="speed-value">5</span>
             </div>
-            <button class="btn btn-start" id="btn-start">▶ Start Analysis</button>
-            <button class="btn btn-stop"  id="btn-stop" disabled>■ Stop</button>
+            <button class="btn btn-start" id="btn-start">▶ Start Simulation</button>
+            <button class="btn btn-stop"  id="btn-stop" disabled>■ Pause</button>
             <button class="btn btn-reset" id="btn-reset">↺ Reset</button>
         </div>
     </header>
@@ -52,7 +61,7 @@
             <div class="stat-icon cyan">📊</div>
             <div class="stat-info">
                 <div class="stat-label">Logs Processed</div>
-                <div class="stat-value cyan" id="stat-logs">0</div>
+                <div class="stat-value cyan" id="stat-processed">0</div>
             </div>
         </div>
         <div class="stat-card">
@@ -63,17 +72,74 @@
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon green">🌐</div>
+            <div class="stat-icon green">⚡</div>
             <div class="stat-info">
-                <div class="stat-label">Active IPs Tracked</div>
-                <div class="stat-value green" id="stat-ips">0</div>
+                <div class="stat-label">Queue Total</div>
+                <div class="stat-value green" id="queue-total">0</div>
             </div>
         </div>
         <div class="stat-card">
             <div class="stat-icon orange">📥</div>
             <div class="stat-info">
-                <div class="stat-label">Queue Depth</div>
-                <div class="stat-value orange" id="stat-queue">0</div>
+                <div class="stat-label">Queue Utilization</div>
+                <div class="stat-value orange" id="queue-util">0.0%</div>
+                <div class="queue-bar-container" style="margin-top: 6px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px;">
+                    <div id="queue-bar" style="width: 0%; height: 100%; background: var(--orange); border-radius: 2px; transition: width 0.3s;"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ═══════════════ FILE & DOCUMENT INGESTION PANEL ════════════════ -->
+    <section class="panel upload-panel" style="margin-bottom: 20px;">
+        <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div class="panel-title">
+                <span class="dot green"></span> Custom Log File & Document Analyzer
+                <span class="file-types-badge">Supports .TXT · .LOG · .PDF</span>
+            </div>
+            <div class="upload-sample-buttons">
+                <span style="font-size: 0.8rem; color: var(--text-secondary); margin-right: 6px;">Load Presets:</span>
+                <button class="btn btn-sm btn-preset" id="preset-brute">🗡️ Brute Force Log</button>
+                <button class="btn btn-sm btn-preset" id="preset-ddos">💣 DDoS Attack Log</button>
+                <button class="btn btn-sm btn-preset" id="preset-privesc">🔓 PrivEsc & Exfil Log</button>
+            </div>
+        </div>
+        <div class="panel-body" style="padding: 16px;">
+            <div class="upload-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                
+                <!-- Dropzone for Files -->
+                <div class="dropzone" id="dropzone" style="border: 2px dashed var(--border); border-radius: var(--radius-md); padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                    <div style="font-size: 2.2rem; margin-bottom: 8px;">📂</div>
+                    <div style="font-weight: 600; font-size: 1rem; color: var(--text-primary); margin-bottom: 4px;">Drag & Drop Log File Here</div>
+                    <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;">Supports Plain Text (.txt, .log) and PDF Documents (.pdf)</div>
+                    <button class="btn btn-sm" type="button" style="background: var(--border); color: var(--text-primary); pointer-events: none;">Browse Files</button>
+                    <input type="file" id="file-input" accept=".txt,.log,.pdf" style="display: none;" multiple>
+                </div>
+
+                <!-- Manual Log Text / Preview Area -->
+                <div class="log-textarea-container" style="display: flex; flex-direction: column;">
+                    <label for="custom-log-text" style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 6px; display: flex; justify-content: space-between;">
+                        <span>Paste Raw Server / Error Logs:</span>
+                        <span id="parsed-count-tag" style="color: var(--cyan); font-weight: 600;">0 events parsed</span>
+                    </label>
+                    <textarea id="custom-log-text" rows="5" placeholder="Example:
+2026-09-27 10:14:02 [ERROR] 192.168.1.100 LOGIN_ATTEMPT FAILED port 22 (Severity 8)
+2026-09-27 10:14:03 [ERROR] 192.168.1.100 LOGIN_ATTEMPT FAILED port 22 (Severity 8)
+2026-09-27 10:14:04 [CRITICAL] 192.168.1.100 PRIVILEGE_ESCALATION SUCCESS (Severity 10)
+2026-09-27 10:14:05 [WARN] 10.0.0.55 PORT_SCAN BLOCKED port 8080 (Severity 6)" style="width: 100%; flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); padding: 10px; resize: none; outline: none;"></textarea>
+                </div>
+
+            </div>
+
+            <!-- Upload Bar Actions & File Info -->
+            <div class="upload-actions" style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 10px 14px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                <div id="file-info-text" style="font-size: 0.85rem; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;">
+                    <span>No file selected. Drop a .txt / .log / .pdf or paste logs above.</span>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-sm btn-reset" id="btn-clear-file">Clear</button>
+                    <button class="btn btn-start" id="btn-analyze-file" style="padding: 6px 18px; font-size: 0.88rem;">⚡ Analyze with C Engine</button>
+                </div>
             </div>
         </div>
     </section>
@@ -83,7 +149,7 @@
         <!-- Live Log Feed -->
         <div class="panel">
             <div class="panel-header">
-                <div class="panel-title"><span class="dot cyan"></span> Live Log Feed</div>
+                <div class="panel-title"><span class="dot cyan"></span> Ingested Log Stream</div>
             </div>
             <div class="panel-body">
                 <div id="log-feed"></div>
@@ -93,10 +159,10 @@
         <!-- Threat Alerts -->
         <div class="panel alerts-panel" id="alerts-panel">
             <div class="panel-header">
-                <div class="panel-title"><span class="dot magenta"></span> Threat Alerts</div>
+                <div class="panel-title"><span class="dot magenta"></span> Threat Alerts (C Engine)</div>
             </div>
             <div class="panel-body">
-                <div id="alert-list"></div>
+                <div id="alert-feed"></div>
             </div>
         </div>
     </section>
@@ -107,15 +173,12 @@
         <!-- QUEUE -->
         <div class="ds-panel">
             <div class="ds-header">
-                <div class="ds-title"><span class="dot cyan"></span> Queue</div>
+                <div class="ds-title"><span class="dot cyan"></span> Queue (Circular Buffer)</div>
                 <span class="ds-tag fifo">FIFO</span>
             </div>
             <div class="ds-body">
                 <div class="ds-stats" id="queue-stats">
-                    <span>Size: <b>0</b>/500</span>
-                </div>
-                <div class="queue-bar-container">
-                    <div class="fill-bar fill-ok" id="queue-fill-bar" style="width: 0%"></div>
+                    <span>Queue Ingest Capacity: <b>500</b></span>
                 </div>
                 <div class="queue-items" id="queue-viz-items"></div>
             </div>
@@ -124,41 +187,40 @@
         <!-- HASH TABLE -->
         <div class="ds-panel">
             <div class="ds-header">
-                <div class="ds-title"><span class="dot green"></span> Hash Table</div>
+                <div class="ds-title"><span class="dot green"></span> Hash Table (IP Frequencies)</div>
                 <span class="ds-tag o1">O(1)</span>
             </div>
             <div class="ds-body">
                 <div class="ds-stats" id="hash-stats">
-                    <span>Entries: <b>0</b></span>
+                    <span>Tracked IP Buckets: <b>1024</b></span>
                 </div>
-                <div class="hash-bucket-grid" id="hash-bucket-grid"></div>
-                <div id="hash-top-ips"></div>
+                <div id="hash-top-ips" style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--green);"></div>
             </div>
         </div>
 
         <!-- BST -->
         <div class="ds-panel">
             <div class="ds-header">
-                <div class="ds-title"><span class="dot purple"></span> BST (AVL)</div>
+                <div class="ds-title"><span class="dot purple"></span> BST (AVL Severity Tree)</div>
                 <span class="ds-tag logn">O(log n)</span>
             </div>
             <div class="ds-body">
                 <div class="ds-stats" id="bst-stats">
-                    <span>Nodes: <b>0</b></span>
+                    <span>Severity Index Tree</span>
                 </div>
-                <canvas id="bst-canvas"></canvas>
+                <canvas id="bst-canvas" height="120"></canvas>
             </div>
         </div>
 
         <!-- STACK -->
         <div class="ds-panel">
             <div class="ds-header">
-                <div class="ds-title"><span class="dot orange"></span> Stack</div>
+                <div class="ds-title"><span class="dot orange"></span> Stack (Sequence Pattern)</div>
                 <span class="ds-tag lifo">LIFO</span>
             </div>
             <div class="ds-body">
                 <div class="ds-stats" id="stack-stats">
-                    <span>Depth: <b>0</b></span>
+                    <span>PrivEsc Chain Depth</span>
                 </div>
                 <div class="stack-items" id="stack-items"></div>
             </div>
@@ -180,17 +242,14 @@
                 <div class="panel-title"><span class="dot magenta"></span> Attack Distribution</div>
             </div>
             <div class="chart-container">
-                <canvas id="attack-chart"></canvas>
+                <canvas id="attack-dist-chart"></canvas>
             </div>
         </div>
     </section>
 
 </div>
 
-<!-- ═══════════════ SCRIPTS (order matters) ════════════════ -->
-<script src="js/data-structures.js"></script>
-<script src="js/log-generator.js"></script>
-<script src="js/analyzer.js"></script>
+<!-- ═══════════════ SCRIPTS ════════════════ -->
 <script src="js/dashboard.js"></script>
 
 </body>
