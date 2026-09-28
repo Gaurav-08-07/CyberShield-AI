@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="CyberShield-AI — Real-time Threat Log Analyzer powered by C backend data structures (Queue, Hash Table, BST, Stack).">
-    <title>CyberShield-AI — Threat Log Analyzer</title>
+    <meta name="description" content="CyberShield-AI ÔÇö Real-time Threat Log Analyzer powered by C backend data structures (Queue, Hash Table, BST, Stack).">
+    <title>CyberShield-AI ÔÇö Threat Log Analyzer</title>
 
     <!-- Styles -->
     <link rel="stylesheet" href="css/index.css">
@@ -24,13 +24,13 @@
 
 <div class="app-container">
 
-    <!-- ═══════════════ HEADER ═══════════════════════════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ HEADER ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <header class="header">
         <div class="header-left">
-            <div class="logo-icon">🛡️</div>
+            <div class="logo-icon">­ƒøí´©Å</div>
             <div>
                 <div class="header-title">CyberShield-AI</div>
-                <div class="header-subtitle">Real-Time Threat Detection &nbsp;·&nbsp; Stack · Queue · Hash Table · BST</div>
+                <div class="header-subtitle">Real-Time Threat Detection &nbsp;┬À&nbsp; Stack ┬À Queue ┬À Hash Table ┬À BST</div>
             </div>
         </div>
 
@@ -43,43 +43,43 @@
         </div>
 
         <div class="header-right">
-            <button class="btn btn-theme" id="btn-theme">☀️ Light Mode</button>
+            <button class="btn btn-theme" id="btn-theme">ÔÿÇ´©Å Light Mode</button>
             <div class="speed-control">
                 <label for="speed-slider">Speed</label>
                 <input type="range" id="speed-slider" min="0" max="20" value="5">
                 <span class="speed-value" id="speed-value">5</span>
             </div>
-            <button class="btn btn-start" id="btn-start">▶ Start Simulation</button>
-            <button class="btn btn-stop"  id="btn-stop" disabled>■ Pause</button>
-            <button class="btn btn-reset" id="btn-reset">↺ Reset</button>
+            <button class="btn btn-start" id="btn-start">ÔûÂ Start Simulation</button>
+            <button class="btn btn-stop"  id="btn-stop" disabled>Ôûá Pause</button>
+            <button class="btn btn-reset" id="btn-reset">Ôå║ Reset</button>
         </div>
     </header>
 
-    <!-- ═══════════════ STATS ROW ════════════════════════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ STATS ROW ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <section class="stats-row">
         <div class="stat-card">
-            <div class="stat-icon cyan">📊</div>
+            <div class="stat-icon cyan">­ƒôè</div>
             <div class="stat-info">
                 <div class="stat-label">Logs Processed</div>
                 <div class="stat-value cyan" id="stat-processed">0</div>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon magenta">🚨</div>
+            <div class="stat-icon magenta">­ƒÜ¿</div>
             <div class="stat-info">
                 <div class="stat-label">Threats Detected</div>
                 <div class="stat-value magenta" id="stat-threats">0</div>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon green">⚡</div>
+            <div class="stat-icon green">ÔÜí</div>
             <div class="stat-info">
                 <div class="stat-label">Queue Total</div>
                 <div class="stat-value green" id="queue-total">0</div>
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-icon orange">📥</div>
+            <div class="stat-icon orange">­ƒôÑ</div>
             <div class="stat-info">
                 <div class="stat-label">Queue Utilization</div>
                 <div class="stat-value orange" id="queue-util">0.0%</div>
@@ -90,18 +90,18 @@
         </div>
     </section>
 
-    <!-- ═══════════════ FILE & DOCUMENT INGESTION PANEL ════════════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ FILE & DOCUMENT INGESTION PANEL ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <section class="panel upload-panel" style="margin-bottom: 20px;">
         <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
             <div class="panel-title">
                 <span class="dot green"></span> Custom Log File & Document Analyzer
-                <span class="file-types-badge">Supports .TXT · .LOG · .PDF</span>
+                <span class="file-types-badge">Supports .TXT ┬À .LOG ┬À .PDF</span>
             </div>
             <div class="upload-sample-buttons">
                 <span style="font-size: 0.8rem; color: var(--text-secondary); margin-right: 6px;">Load Presets:</span>
-                <button class="btn btn-sm btn-preset" id="preset-brute">🗡️ Brute Force Log</button>
-                <button class="btn btn-sm btn-preset" id="preset-ddos">💣 DDoS Attack Log</button>
-                <button class="btn btn-sm btn-preset" id="preset-privesc">🔓 PrivEsc & Exfil Log</button>
+                <button class="btn btn-sm btn-preset" id="preset-brute">­ƒùí´©Å Brute Force Log</button>
+                <button class="btn btn-sm btn-preset" id="preset-ddos">­ƒÆú DDoS Attack Log</button>
+                <button class="btn btn-sm btn-preset" id="preset-privesc">­ƒöô PrivEsc & Exfil Log</button>
             </div>
         </div>
         <div class="panel-body" style="padding: 16px;">
@@ -109,7 +109,7 @@
                 
                 <!-- Dropzone for Files -->
                 <div class="dropzone" id="dropzone" style="border: 2px dashed var(--border); border-radius: var(--radius-md); padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s ease; background: rgba(0,0,0,0.15); display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                    <div style="font-size: 2.2rem; margin-bottom: 8px;">📂</div>
+                    <div style="font-size: 2.2rem; margin-bottom: 8px;">­ƒôé</div>
                     <div style="font-weight: 600; font-size: 1rem; color: var(--text-primary); margin-bottom: 4px;">Drag & Drop Log File Here</div>
                     <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px;">Supports Plain Text (.txt, .log) and PDF Documents (.pdf)</div>
                     <button class="btn btn-sm" type="button" style="background: var(--border); color: var(--text-primary); pointer-events: none;">Browse Files</button>
@@ -138,13 +138,13 @@
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <button class="btn btn-sm btn-reset" id="btn-clear-file">Clear</button>
-                    <button class="btn btn-start" id="btn-analyze-file" style="padding: 6px 18px; font-size: 0.88rem;">⚡ Analyze with C Engine</button>
+                    <button class="btn btn-start" id="btn-analyze-file" style="padding: 6px 18px; font-size: 0.88rem;">ÔÜí Analyze with C Engine</button>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- ═══════════════ MAIN GRID: LOG FEED + ALERTS ════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ MAIN GRID: LOG FEED + ALERTS ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <section class="main-grid">
         <!-- Live Log Feed -->
         <div class="panel">
@@ -167,7 +167,7 @@
         </div>
     </section>
 
-    <!-- ═══════════════ DATA STRUCTURE VISUALIZERS ═══════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ DATA STRUCTURE VISUALIZERS ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <section class="ds-grid">
 
         <!-- QUEUE -->
@@ -227,7 +227,7 @@
         </div>
     </section>
 
-    <!-- ═══════════════ CHARTS ═══════════════════════════════ -->
+    <!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ CHARTS ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
     <section class="charts-row">
         <div class="panel">
             <div class="panel-header">
@@ -249,7 +249,7 @@
 
 </div>
 
-<!-- ═══════════════ SCRIPTS ════════════════ -->
+<!-- ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ SCRIPTS ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ -->
 <script src="js/dashboard.js"></script>
 
 </body>

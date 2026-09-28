@@ -273,6 +273,14 @@ static void fn(struct mg_connection *c, int ev, void *ev_data) {
 }
 
 int main(void) {
+    #ifdef _WIN32
+    if (GetFileAttributesA("public") != INVALID_FILE_ATTRIBUTES) {
+        s_web_root = "public";
+    } else if (GetFileAttributesA("c_version/public") != INVALID_FILE_ATTRIBUTES) {
+        s_web_root = "c_version/public";
+    }
+    #endif
+
     log_generator_init();
     analyzer = analyzer_create();
 
