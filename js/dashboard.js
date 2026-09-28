@@ -12,6 +12,16 @@ class Dashboard {
         this._initCharts();
         this._bindControls();
         this._bindFileUpload();
+        
+        // Auto start tick loop
+        this.start();
+    }
+
+    _apiUrl(path) {
+        if (window.location.protocol.startsWith('http')) {
+            return path;
+        }
+        return 'http://localhost:8080' + path;
     }
 
     _initCharts() {
@@ -39,7 +49,7 @@ class Dashboard {
         if (btnStop) btnStop.addEventListener('click', () => this.stop());
         if (btnReset) btnReset.addEventListener('click', () => {
             this.stop();
-            fetch('/api/reset');
+            fetch(this._apiUrl('/api/reset'));
             this.logFeed.innerHTML = '';
             this.alertFeed.innerHTML = '';
             document.getElementById('stat-processed').textContent = '0';
@@ -65,7 +75,7 @@ class Dashboard {
         if (speedSlider) speedSlider.addEventListener('input', (e) => {
             this.speed = parseInt(e.target.value, 10);
             document.getElementById('speed-value').textContent = this.speed;
-            fetch(`/api/speed?val=${this.speed}`);
+            fetch(this._apiUrl(`/api/speed?val=${this.speed}`));
         });
 
         // Start clock
@@ -140,7 +150,7 @@ class Dashboard {
                 btnAnalyze.textContent = '⏳ Processing in C Engine...';
 
                 try {
-                    const res = await fetch('/api/ingest', {
+                    const res = await fetch(this._apiUrl('/api/ingest'), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(parsedEvents)
@@ -343,7 +353,7 @@ class Dashboard {
         if (statusText) statusText.textContent = 'RUNNING';
         if (statusInd) statusInd.classList.add('active');
 
-        fetch(`/api/speed?val=${this.speed}`);
+        fetch(this._apiUrl(`/api/speed?val=${this.speed}`));
         this.loop = setInterval(() => this._tick(), 500);
     }
 
@@ -359,13 +369,13 @@ class Dashboard {
         if (statusText) statusText.textContent = 'PAUSED';
         if (statusInd) statusInd.classList.remove('active');
 
-        fetch(`/api/speed?val=0`);
+        fetch(this._apiUrl(`/api/speed?val=0`));
         clearInterval(this.loop);
     }
 
     async _tick() {
         try {
-            const res = await fetch('/api/state');
+            const res = await fetch(this._apiUrl('/api/state'));
             const data = await res.json();
             
             // Append logs
