@@ -1,0 +1,16 @@
+{
+  "name": "cybershield-ai",
+  "version": "1.0.0",
+  "description": "CyberShield-AI - Real-Time Threat Log Analyzer with Queue, Hash Table, BST, and Stack",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve . -p 3000",
+    "start": "npx serve . -p 3000"
+  },
+  "devDependencies": {
+    "serve": "^14.2.0"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
